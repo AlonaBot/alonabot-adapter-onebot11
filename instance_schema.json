@@ -1,0 +1,5 @@
+{
+  "ws_url": {"type": "string", "required": true},
+  "access_token": {"type": "string", "secret": true},
+  "mode": {"type": "string", "options": ["forward"], "default": "forward"}
+}
