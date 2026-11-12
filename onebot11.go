@@ -11,9 +11,10 @@ import (
 	"sync"
 
 	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
-	pb "github.com/AlonaBot/AlonaBot/contracts/pb/alonabotv1"
 	"github.com/AlonaBot/AlonaBot/sdk"
 	"github.com/AlonaBot/AlonaBot/sdk/adapter"
+	"github.com/AlonaBot/AlonaBot/sdk/errcode"
+	msg "github.com/AlonaBot/AlonaBot/sdk/message"
 	"github.com/coder/websocket"
 )
 
@@ -28,8 +29,8 @@ type onebotAdapter struct{}
 // New 创建 OneBot 11 Adapter，账号身份在 Start 中通过 get_login_info 验证。
 func New() adapter.Adapter { return &onebotAdapter{} }
 
-func receiveCapabilities() []*pb.Capability {
-	return []*pb.Capability{
+func receiveCapabilities() []msg.Capability {
+	return []msg.Capability{
 		{Name: "message.created", Version: 1, Supported: true},
 		{Name: "message.deleted", Version: 1, Supported: true},
 		{Name: "member.joined", Version: 1, Supported: true},
@@ -38,10 +39,10 @@ func receiveCapabilities() []*pb.Capability {
 }
 
 // Descriptor 声明接收能力和平台事实权限。
-func (*onebotAdapter) Descriptor() *pb.AdapterDescriptor {
-	return &pb.AdapterDescriptor{
-		AdapterId: AdapterID, Capabilities: receiveCapabilities(),
-		Permissions: []*pb.PermissionDeclaration{
+func (*onebotAdapter) Descriptor() *adapter.Descriptor {
+	return &adapter.Descriptor{
+		AdapterID: AdapterID, Capabilities: receiveCapabilities(),
+		Permissions: []adapter.PermissionDeclaration{
 			{Name: perm.GroupOwner, Implies: []string{perm.GroupAdmin}, LabelKey: "permission.group_owner"},
 			{Name: perm.GroupAdmin, Implies: []string{"chat_admin"}, LabelKey: "permission.group_admin"},
 			{Name: perm.PrivateFriend, LabelKey: "permission.private_friend"},
@@ -69,7 +70,7 @@ func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, c
 		conn: conn, pending: make(map[string]chan apiResult),
 		ctx: lifetime, cancel: cancel, done: make(chan struct{}),
 		receiveCtx: receiveCtx, cancelReceive: cancelReceive,
-		deliveryDone: make(chan struct{}), failures: make(chan *pb.ErrorInfo, 1),
+		deliveryDone: make(chan struct{}), failures: make(chan *errcode.Error, 1),
 		events: make(chan receivedEvent, eventQueueCapacity),
 	}
 	source := i.startRead(conn)
@@ -78,7 +79,7 @@ func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, c
 		cancel()
 		conn.CloseNow()
 		<-source.readDone // Start 失败不启动交付与重连，先收回唯一的读取循环。
-		return nil, &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: config.safeError(err).Error()}
+		return nil, &sdk.Error{Code: errcode.Unavailable, Message: config.safeError(err).Error()}
 	}
 	i.account = account
 	source.valid = true
@@ -104,7 +105,7 @@ type instance struct {
 	cancelReceive context.CancelFunc
 	done          chan struct{} // 生命周期循环回收读与交付循环并完成故障报告后关闭。
 	deliveryDone  chan struct{}
-	failures      chan *pb.ErrorInfo // 容量为 1，保留首个致命故障供生命周期循环报告。
+	failures      chan *errcode.Error // 容量为 1，保留首个致命故障供生命周期循环报告。
 	events        chan receivedEvent
 	dropped       uint64 // 仅由读取循环累加。
 	ignored       uint64 // 仅由交付循环累加。
@@ -119,11 +120,11 @@ type instance struct {
 func (i *instance) Account() adapter.Account { return i.account }
 
 // Capabilities 返回实例的接收能力。
-func (*instance) Capabilities() []*pb.Capability { return receiveCapabilities() }
+func (*instance) Capabilities() []msg.Capability { return receiveCapabilities() }
 
 // Send 返回 UNSUPPORTED，且不会发起平台请求。
-func (*instance) Send(context.Context, *pb.Target, *pb.MessageChain) (*pb.SendResult, *pb.ErrorInfo) {
-	return nil, &pb.ErrorInfo{Code: pb.ErrorCode_ERROR_CODE_UNSUPPORTED, SafeMessage: "onebot sending is unsupported"}
+func (*instance) Send(context.Context, msg.Session, msg.Chain) (*msg.SendResult, *errcode.Error) {
+	return nil, &errcode.Error{Code: errcode.Unsupported, Message: "onebot sending is unsupported"}
 }
 
 // Stop 取消退避、握手、读取和交付，等待全部循环与故障报告结束后返回。
@@ -153,7 +154,7 @@ func (i *instance) login(ctx context.Context) (adapter.Account, error) {
 		return adapter.Account{}, err
 	}
 	if login.UserID == nil || *login.UserID <= 0 || login.Nickname == nil {
-		return adapter.Account{}, &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: "invalid get_login_info data"}
+		return adapter.Account{}, &sdk.Error{Code: errcode.Unavailable, Message: "invalid get_login_info data"}
 	}
 	return adapter.Account{ID: strconv.FormatInt(*login.UserID, 10), DisplayName: *login.Nickname}, nil
 }

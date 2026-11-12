@@ -16,27 +16,28 @@ import (
 	"github.com/AlonaBot/AlonaBot/adapters/onebot11"
 	"github.com/AlonaBot/AlonaBot/adapters/onebot11/onebottest"
 	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
-	pb "github.com/AlonaBot/AlonaBot/contracts/pb/alonabotv1"
 	"github.com/AlonaBot/AlonaBot/sdk"
 	"github.com/AlonaBot/AlonaBot/sdk/adapter"
-	"google.golang.org/protobuf/proto"
+	"github.com/AlonaBot/AlonaBot/sdk/errcode"
+	msg "github.com/AlonaBot/AlonaBot/sdk/message"
+	"reflect"
 )
 
 type recordingCore struct {
 	adapter.Core
 	t             *testing.T
 	mu            sync.Mutex
-	events        []*pb.Event
+	events        []*msg.Event
 	delivered     chan struct{}
-	failures      chan *pb.ErrorInfo
+	failures      chan *errcode.Error
 	deliveryError error
 }
 
 func newRecordingCore(t *testing.T) *recordingCore {
-	return &recordingCore{t: t, delivered: make(chan struct{}, 16), failures: make(chan *pb.ErrorInfo, 2)}
+	return &recordingCore{t: t, delivered: make(chan struct{}, 16), failures: make(chan *errcode.Error, 2)}
 }
 
-func (c *recordingCore) Deliver(_ context.Context, event *pb.Event, cursor []byte) (bool, error) {
+func (c *recordingCore) Deliver(_ context.Context, event *msg.Event, cursor []byte) (bool, error) {
 	if cursor != nil {
 		c.t.Errorf("cursor = %v, want nil", cursor)
 	}
@@ -48,15 +49,15 @@ func (c *recordingCore) Deliver(_ context.Context, event *pb.Event, cursor []byt
 	return count != 2, c.deliveryError
 }
 
-func (c *recordingCore) ReportFailure(_ context.Context, failure *pb.ErrorInfo) error {
+func (c *recordingCore) ReportFailure(_ context.Context, failure *errcode.Error) error {
 	c.failures <- failure
 	return nil
 }
 
-func (c *recordingCore) snapshot() []*pb.Event {
+func (c *recordingCore) snapshot() []*msg.Event {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]*pb.Event(nil), c.events...)
+	return append([]*msg.Event(nil), c.events...)
 }
 
 func startRequest(t *testing.T, server *onebottest.Server, token string) adapter.StartRequest {
@@ -132,41 +133,41 @@ func TestReceiveLifecycle(t *testing.T) {
 		waitDelivery(t, ctx, core)
 	}
 	// 完整比较同时检查 Core 保留字段、可选字段和原始上报。
-	want := make([]*pb.Event, 5)
+	want := make([]*msg.Event, 5)
 	for n := range want {
 		chat := "group:9"
 		if n == 0 {
 			chat = "private:7"
 		}
-		want[n] = &pb.Event{AdapterId: proto.String(onebot11.AdapterID), AdapterInstanceId: proto.String("integration"), AccountId: proto.String("42"),
-			Target: &pb.Target{AdapterId: onebot11.AdapterID, AdapterInstanceId: "integration", AccountId: "42", ChatId: chat}, OccurredAtUnixMs: 123000, PlatformPayload: raw[n]}
+		want[n] = &msg.Event{AdapterID: onebot11.AdapterID, AdapterInstanceID: "integration", AccountID: "42",
+			Session: msg.NewSession(onebot11.AdapterID, chat, ""), OccurredAt: time.Unix(123, 0), PlatformPayload: raw[n]}
 	}
-	chains := []*pb.MessageChain{
-		{Segments: []*pb.Segment{{Data: &pb.Segment_Text{Text: &pb.TextSegment{Text: "hello", Format: pb.TextFormat_TEXT_FORMAT_PLAIN.Enum()}}}}},
-		{Segments: []*pb.Segment{{Data: &pb.Segment_Mention{Mention: &pb.MentionSegment{ExternalUserId: "42"}}}}},
+	chains := []msg.Chain{
+		{msg.TextSegment{Text: "hello", Format: msg.FormatPlain}},
+		{msg.MentionSegment{ExternalUserID: "42"}},
 		{},
 	}
 	for n := range 3 {
 		id := fmt.Sprint(n + 1)
-		want[n].EventType = "message.created"
-		want[n].SourceEventId = proto.String(id)
-		want[n].Message = &pb.PlatformMessage{PlatformMessageId: id, Chain: chains[n]}
-		want[n].EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MessageCreated{MessageCreated: &pb.MessageCreatedPayload{PlatformMessageId: id, Chain: chains[n], ToMe: n < 2}}}
+		want[n].Type = "message.created"
+		want[n].SourceEventID = id
+		want[n].Message = &msg.PlatformMessage{PlatformMessageID: id, Chain: chains[n]}
+		want[n].Payload = &msg.CreatedPayload{PlatformMessageID: id, Chain: chains[n], ToMe: n < 2}
 	}
-	want[0].Actor = &pb.Actor{ExternalUserId: "7", AdapterInstanceId: "integration", DisplayName: proto.String("Friend"), Permissions: []string{perm.PrivateFriend}}
-	want[1].Actor = &pb.Actor{ExternalUserId: "7", AdapterInstanceId: "integration", DisplayName: proto.String("Owner"), Permissions: []string{perm.GroupOwner}}
-	want[3].EventType = "message.deleted"
-	want[3].Actor = &pb.Actor{ExternalUserId: "8", AdapterInstanceId: "integration"}
-	want[3].EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MessageDeleted{MessageDeleted: &pb.MessageDeletedPayload{PlatformMessageIds: []string{"2"}}}}
-	want[4].EventType = "member.joined"
-	want[4].Actor = &pb.Actor{ExternalUserId: "8", AdapterInstanceId: "integration"}
-	want[4].EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MemberJoined{MemberJoined: &pb.MemberPayload{MemberExternalUserId: "10"}}}
+	want[0].Actor = &msg.Actor{ExternalUserID: "7", AdapterInstanceID: "integration", DisplayName: "Friend", Permissions: []string{perm.PrivateFriend}}
+	want[1].Actor = &msg.Actor{ExternalUserID: "7", AdapterInstanceID: "integration", DisplayName: "Owner", Permissions: []string{perm.GroupOwner}}
+	want[3].Type = "message.deleted"
+	want[3].Actor = &msg.Actor{ExternalUserID: "8", AdapterInstanceID: "integration"}
+	want[3].Payload = &msg.DeletedPayload{PlatformMessageIDs: []string{"2"}}
+	want[4].Type = "member.joined"
+	want[4].Actor = &msg.Actor{ExternalUserID: "8", AdapterInstanceID: "integration"}
+	want[4].Payload = &msg.MemberPayload{MemberExternalUserID: "10"}
 	got := core.snapshot()
 	if len(got) != len(want) {
 		t.Fatalf("events = %d, want %d", len(got), len(want))
 	}
 	for n := range want {
-		if !proto.Equal(got[n], want[n]) {
+		if !reflect.DeepEqual(got[n], want[n]) {
 			t.Errorf("event %d:\ngot %v\nwant %v", n, got[n], want[n])
 		}
 	}
@@ -176,14 +177,14 @@ func TestReceiveLifecycle(t *testing.T) {
 	server.Push(next)
 	waitDelivery(t, ctx, core)
 	got = core.snapshot()
-	if len(got) != 6 || got[5].GetSourceEventId() != "4" || !bytes.Equal(got[5].PlatformPayload, next) {
+	if len(got) != 6 || got[5].SourceEventID != "4" || !bytes.Equal(got[5].PlatformPayload, next) {
 		t.Fatalf("events after reconnect: %v", got)
 	}
 	server.SetLogin(99, "Other")
 	server.Disconnect()
 	select {
 	case failure := <-core.failures:
-		if failure.Code != pb.ErrorCode_ERROR_CODE_FAILED_PRECONDITION || failure.SafeMessage != "onebot account changed" {
+		if failure.Code != errcode.FailedPrecondition || failure.Message != "onebot account changed" {
 			t.Fatalf("failure = %v", failure)
 		}
 	case <-ctx.Done():
@@ -209,12 +210,12 @@ func TestCredentialRedaction(t *testing.T) {
 	core := newRecordingCore(t)
 	_, err := onebot11.New().Start(ctx, startRequest(t, server, token+"-wrong"), core)
 	var public *sdk.Error
-	if !errors.As(err, &public) || public.Code != pb.ErrorCode_ERROR_CODE_PERMISSION_DENIED || strings.Contains(err.Error(), token) {
+	if !errors.As(err, &public) || public.Code != errcode.PermissionDenied || strings.Contains(err.Error(), token) {
 		t.Fatalf("unsafe authentication error: %v", err)
 	}
 	server.Respond("get_login_info", func(map[string]any) (string, int, any) { return "rejected-" + token, 1401, nil })
 	_, err = onebot11.New().Start(ctx, startRequest(t, server, token), core)
-	if !errors.As(err, &public) || public.Code != pb.ErrorCode_ERROR_CODE_UNAVAILABLE || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "rejected-") {
+	if !errors.As(err, &public) || public.Code != errcode.Unavailable || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "rejected-") {
 		t.Fatalf("unsafe login error: %v", err)
 	}
 	server.Respond("get_login_info", func(map[string]any) (string, int, any) {

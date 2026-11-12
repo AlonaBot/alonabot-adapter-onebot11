@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	pb "github.com/AlonaBot/AlonaBot/contracts/pb/alonabotv1"
 	"github.com/AlonaBot/AlonaBot/sdk"
+	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	"github.com/coder/websocket"
 )
 
@@ -43,7 +43,7 @@ func (i *instance) maintainConnection(source *receiveConnection) {
 		<-i.deliveryDone // 先结束全部交付，再向 Core 报告首个致命故障。
 		select {
 		case failure := <-i.failures:
-			i.reportFailure(failure.Code, failure.SafeMessage)
+			i.reportFailure(failure.Code, failure.Message)
 		default:
 		}
 	}()
@@ -60,8 +60,8 @@ func (i *instance) maintainConnection(source *receiveConnection) {
 		}
 		if err != nil {
 			var public *sdk.Error
-			if errors.As(err, &public) && public.Code == pb.ErrorCode_ERROR_CODE_PERMISSION_DENIED {
-				i.fail(pb.ErrorCode_ERROR_CODE_PERMISSION_DENIED, "onebot implementation rejected the access token")
+			if errors.As(err, &public) && public.Code == errcode.PermissionDenied {
+				i.fail(errcode.PermissionDenied, "onebot implementation rejected the access token")
 				return
 			}
 			slog.Warn("onebot websocket reconnect failed", "adapter_instance_id", i.id, "error", i.config.safeError(err))
@@ -92,7 +92,7 @@ func (i *instance) maintainConnection(source *receiveConnection) {
 				backoff = nextReconnectBackoff(backoff)
 				continue
 			}
-			i.fail(pb.ErrorCode_ERROR_CODE_FAILED_PRECONDITION, "onebot account changed")
+			i.fail(errcode.FailedPrecondition, "onebot account changed")
 			return
 		}
 
@@ -105,16 +105,16 @@ func (i *instance) maintainConnection(source *receiveConnection) {
 	}
 }
 
-func (i *instance) fail(code pb.ErrorCode, message string) {
+func (i *instance) fail(code errcode.Code, message string) {
 	select { // 队列保留首个故障，接收与交付同时发现问题时也只报告一次。
-	case i.failures <- &pb.ErrorInfo{Code: code, SafeMessage: message}:
+	case i.failures <- &errcode.Error{Code: code, Message: message}:
 	default:
 	}
 	i.stopReceive()
 }
 
-func (i *instance) reportFailure(code pb.ErrorCode, message string) {
-	if err := i.core.ReportFailure(i.ctx, &pb.ErrorInfo{Code: code, SafeMessage: message}); err != nil {
+func (i *instance) reportFailure(code errcode.Code, message string) {
+	if err := i.core.ReportFailure(i.ctx, &errcode.Error{Code: code, Message: message}); err != nil {
 		slog.Error("report onebot failure", "adapter_instance_id", i.id, "error", i.config.safeError(err))
 	}
 }

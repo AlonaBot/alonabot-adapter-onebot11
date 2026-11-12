@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	pb "github.com/AlonaBot/AlonaBot/contracts/pb/alonabotv1"
 	"github.com/AlonaBot/AlonaBot/sdk"
+	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	"github.com/coder/websocket"
 )
 
@@ -85,7 +85,7 @@ func parseConfig(raw []byte) (connectionConfig, error) {
 }
 
 func invalidField(name string) error {
-	return &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_INVALID_ARGUMENT, Message: name}
+	return &sdk.Error{Code: errcode.InvalidArgument, Message: name}
 }
 
 func (c *connectionConfig) dial(ctx context.Context) (*websocket.Conn, error) {
@@ -97,9 +97,9 @@ func (c *connectionConfig) dial(ctx context.Context) (*websocket.Conn, error) {
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	conn, response, err := websocket.Dial(ctx, c.wsURL, &websocket.DialOptions{HTTPHeader: headers, HTTPClient: client})
 	if err != nil {
-		code := pb.ErrorCode_ERROR_CODE_UNAVAILABLE
+		code := errcode.Unavailable
 		if response != nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
-			code = pb.ErrorCode_ERROR_CODE_PERMISSION_DENIED
+			code = errcode.PermissionDenied
 		}
 		return nil, &sdk.Error{Code: code, Message: c.safeError(err).Error()}
 	}
@@ -146,7 +146,7 @@ func (i *instance) call(ctx context.Context, action string, params any, result a
 	conn := i.conn
 	if conn == nil || i.receiveCtx.Err() != nil {
 		i.mu.Unlock()
-		return &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: "onebot connection is closed"}
+		return &sdk.Error{Code: errcode.Unavailable, Message: "onebot connection is closed"}
 	}
 	i.nextEcho++
 	echo := strconv.FormatUint(i.nextEcho, 10)
@@ -172,7 +172,7 @@ func (i *instance) call(ctx context.Context, action string, params any, result a
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: i.config.safeError(err).Error()}
+		return &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(err).Error()}
 	}
 
 	// 2. ctx 仅限制本次调用；等待应答期间不会暂停读取其他响应或上报。
@@ -187,11 +187,11 @@ func (i *instance) call(ctx context.Context, action string, params any, result a
 			return received.err
 		}
 		if received.response.Retcode == nil {
-			return &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: "onebot response has no retcode"}
+			return &sdk.Error{Code: errcode.Unavailable, Message: "onebot response has no retcode"}
 		}
 		if received.response.Status != "ok" || *received.response.Retcode != 0 {
 			message := fmt.Sprintf("onebot API %s returned status %q retcode %d", action, received.response.Status, *received.response.Retcode)
-			return &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: i.config.redact.Replace(message)}
+			return &sdk.Error{Code: errcode.Unavailable, Message: i.config.redact.Replace(message)}
 		}
 		if err := json.Unmarshal(received.response.Data, result); err != nil {
 			return fmt.Errorf("decode onebot %s data: %w", action, i.config.safeError(err))
@@ -261,7 +261,7 @@ func (i *instance) respond(rawEcho, raw json.RawMessage) {
 	}
 	var result apiResult
 	if err := json.Unmarshal(raw, &result.response); err != nil {
-		result.err = &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: i.config.safeError(err).Error()}
+		result.err = &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(err).Error()}
 	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -279,7 +279,7 @@ func (i *instance) disconnect(conn *websocket.Conn, cause error) {
 	}
 	i.conn = nil
 	for echo, response := range i.pending {
-		response <- apiResult{err: &sdk.Error{Code: pb.ErrorCode_ERROR_CODE_UNAVAILABLE, Message: i.config.safeError(cause).Error()}}
+		response <- apiResult{err: &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(cause).Error()}}
 		delete(i.pending, echo)
 	}
 }

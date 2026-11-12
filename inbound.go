@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
-	pb "github.com/AlonaBot/AlonaBot/contracts/pb/alonabotv1"
 	"github.com/AlonaBot/AlonaBot/sdk"
-	"google.golang.org/protobuf/proto"
+	"github.com/AlonaBot/AlonaBot/sdk/errcode"
+	msg "github.com/AlonaBot/AlonaBot/sdk/message"
 )
 
 var errStringMessage = errors.New("onebot implementation must post messages in array format")
@@ -60,7 +61,7 @@ func (i *instance) deliverEvents() {
 		}
 		event, err := i.normalize(i.receiveCtx, received.raw)
 		if errors.Is(err, errStringMessage) {
-			i.fail(pb.ErrorCode_ERROR_CODE_FAILED_PRECONDITION, errStringMessage.Error())
+			i.fail(errcode.FailedPrecondition, errStringMessage.Error())
 			return
 		}
 		if err != nil {
@@ -76,7 +77,7 @@ func (i *instance) deliverEvents() {
 				return
 			}
 			var public *sdk.Error
-			if errors.As(err, &public) && public.Code == pb.ErrorCode_ERROR_CODE_FAILED_PRECONDITION {
+			if errors.As(err, &public) && public.Code == errcode.FailedPrecondition {
 				i.stopReceive()
 				return
 			}
@@ -85,7 +86,7 @@ func (i *instance) deliverEvents() {
 	}
 }
 
-func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*pb.Event, error) {
+func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*msg.Event, error) {
 	// 1. 身份来自已复核的登录账号，错误账号的上报不进入 Core。
 	var post onebotPost
 	if err := json.Unmarshal(raw, &post); err != nil {
@@ -128,11 +129,7 @@ func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*pb.Even
 	if post.Time == nil || chatID == nil {
 		return nil, errors.New("missing onebot event time or chat ID")
 	}
-	event := &pb.Event{
-		AdapterId: proto.String(AdapterID), AdapterInstanceId: proto.String(i.id), AccountId: proto.String(i.account.ID),
-		Target:           &pb.Target{AdapterId: AdapterID, AdapterInstanceId: i.id, AccountId: i.account.ID, ChatId: prefix + strconv.FormatInt(*chatID, 10)},
-		OccurredAtUnixMs: *post.Time * 1000, PlatformPayload: raw,
-	}
+	event := &msg.Event{AdapterID: AdapterID, AdapterInstanceID: i.id, AccountID: i.account.ID, Session: msg.NewSession(AdapterID, prefix+strconv.FormatInt(*chatID, 10), ""), OccurredAt: time.Unix(*post.Time, 0), PlatformPayload: raw}
 
 	// 3. 消息与通知分别构造对应的 payload，Core 保留字段留空。
 	if post.PostType == "message" {
@@ -147,12 +144,12 @@ func (i *instance) ignore(post onebotPost) {
 		"post_type", i.config.redact.Replace(post.PostType), "notice_type", i.config.redact.Replace(post.NoticeType), "ignored", i.ignored)
 }
 
-func (i *instance) messageEvent(ctx context.Context, post onebotPost, event *pb.Event) (*pb.Event, error) {
+func (i *instance) messageEvent(ctx context.Context, post onebotPost, event *msg.Event) (*msg.Event, error) {
 	// 1. 先检查来源标识与数组片段，避免向 Core 交付不完整的消息。
 	if post.MessageID == nil || (post.SubType != "anonymous" && post.UserID == nil) {
 		return nil, errors.New("missing onebot message_id or user_id")
 	}
-	chain, err := messageChain(post.Message, event.Target)
+	chain, err := messageChain(post.Message, event.Session, i.id)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +161,7 @@ func (i *instance) messageEvent(ctx context.Context, post onebotPost, event *pb.
 			name = post.Sender.Nickname
 		}
 		if name != "" {
-			event.Actor.DisplayName = proto.String(name)
+			event.Actor.DisplayName = name
 		}
 		if post.MessageType == "group" {
 			switch post.Sender.Role {
@@ -179,35 +176,36 @@ func (i *instance) messageEvent(ctx context.Context, post onebotPost, event *pb.
 	}
 	// 3. 来源消息与新消息 payload 使用同一份 Chain。
 	platformID := strconv.FormatInt(*post.MessageID, 10)
-	event.EventType = "message.created"
-	event.SourceEventId = proto.String(platformID)
-	event.Message = &pb.PlatformMessage{PlatformMessageId: platformID, Chain: chain}
-	event.EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MessageCreated{MessageCreated: &pb.MessageCreatedPayload{PlatformMessageId: platformID, Chain: chain, ToMe: i.toMe(ctx, post.MessageType == "private", chain)}}}
+	event.Type = "message.created"
+	event.SourceEventID = platformID
+	event.Message = &msg.PlatformMessage{PlatformMessageID: platformID, Chain: chain}
+	event.Payload = &msg.CreatedPayload{PlatformMessageID: platformID, Chain: chain, ToMe: i.toMe(ctx, post.MessageType == "private", chain)}
 	return event, nil
 }
 
-func (i *instance) toMe(ctx context.Context, private bool, chain *pb.MessageChain) bool {
+func (i *instance) toMe(ctx context.Context, private bool, chain msg.Chain) bool {
 	// 1. 私聊和显式提及已足够判断，无需查询引用消息。
 	if private {
 		return true
 	}
-	for _, segment := range chain.Segments {
-		if segment.GetMention().GetExternalUserId() == i.account.ID {
+	for _, segment := range chain {
+		if mention, ok := segment.(msg.MentionSegment); ok && mention.ExternalUserID == i.account.ID {
 			return true
 		}
 	}
 	// 2. 引用只按 get_msg 的实际发送者判断，单次查询失败仍可检查后续引用。
-	for _, segment := range chain.Segments {
-		reference := segment.GetReference()
-		if reference == nil {
+	for _, segment := range chain {
+		reference, ok := segment.(msg.ReferenceSegment)
+		if !ok {
 			continue
 		}
+		_, platformID, _, _ := reference.Ref.Parts()
 		var message struct {
 			Sender struct {
 				UserID *int64 `json:"user_id"`
 			} `json:"sender"`
 		}
-		if err := i.call(ctx, "get_msg", map[string]any{"message_id": json.Number(reference.OriginalPlatformMessageId)}, &message); err != nil {
+		if err := i.call(ctx, "get_msg", map[string]any{"message_id": json.Number(platformID)}, &message); err != nil {
 			slog.Debug("onebot get_msg failed", "adapter_instance_id", i.id, "error", i.config.safeError(err))
 			continue
 		}
@@ -222,14 +220,14 @@ func (i *instance) toMe(ctx context.Context, private bool, chain *pb.MessageChai
 	return false
 }
 
-func (i *instance) noticeEvent(post onebotPost, event *pb.Event) (*pb.Event, error) {
+func (i *instance) noticeEvent(post onebotPost, event *msg.Event) (*msg.Event, error) {
 	switch post.NoticeType {
 	case "group_recall", "friend_recall":
 		if post.MessageID == nil {
 			return nil, errors.New("missing onebot recall message_id")
 		}
-		event.EventType = "message.deleted"
-		event.EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MessageDeleted{MessageDeleted: &pb.MessageDeletedPayload{PlatformMessageIds: []string{strconv.FormatInt(*post.MessageID, 10)}}}}
+		event.Type = "message.deleted"
+		event.Payload = &msg.DeletedPayload{PlatformMessageIDs: []string{strconv.FormatInt(*post.MessageID, 10)}}
 		if post.OperatorID != nil {
 			event.Actor = i.actor(*post.OperatorID)
 		}
@@ -237,13 +235,13 @@ func (i *instance) noticeEvent(post onebotPost, event *pb.Event) (*pb.Event, err
 		if post.UserID == nil {
 			return nil, errors.New("missing onebot member user_id")
 		}
-		payload := &pb.MemberPayload{MemberExternalUserId: strconv.FormatInt(*post.UserID, 10)}
+		payload := &msg.MemberPayload{MemberExternalUserID: strconv.FormatInt(*post.UserID, 10)}
 		if post.NoticeType == "group_increase" {
-			event.EventType = "member.joined"
-			event.EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MemberJoined{MemberJoined: payload}}
+			event.Type = "member.joined"
+			event.Payload = payload
 		} else {
-			event.EventType = "member.left"
-			event.EventPayload = &pb.EventPayload{Kind: &pb.EventPayload_MemberLeft{MemberLeft: payload}}
+			event.Type = "member.left"
+			event.Payload = payload
 		}
 		if post.OperatorID != nil && *post.OperatorID != 0 && *post.OperatorID != *post.UserID {
 			event.Actor = i.actor(*post.OperatorID)
@@ -252,11 +250,11 @@ func (i *instance) noticeEvent(post onebotPost, event *pb.Event) (*pb.Event, err
 	return event, nil
 }
 
-func (i *instance) actor(userID int64) *pb.Actor {
-	return &pb.Actor{ExternalUserId: strconv.FormatInt(userID, 10), AdapterInstanceId: i.id}
+func (i *instance) actor(userID int64) *msg.Actor {
+	return &msg.Actor{ExternalUserID: strconv.FormatInt(userID, 10), AdapterInstanceID: i.id}
 }
 
-func messageChain(raw json.RawMessage, target *pb.Target) (*pb.MessageChain, error) {
+func messageChain(raw json.RawMessage, session msg.Session, instanceID string) (msg.Chain, error) {
 	var segments []struct {
 		Type string                     `json:"type"`
 		Data map[string]json.RawMessage `json:"data"`
@@ -267,7 +265,7 @@ func messageChain(raw json.RawMessage, target *pb.Target) (*pb.MessageChain, err
 	if segments == nil {
 		return nil, errors.New("missing onebot message array")
 	}
-	chain := &pb.MessageChain{}
+	chain := msg.Chain{}
 	for _, segment := range segments {
 		var field string
 		switch segment.Type {
@@ -288,7 +286,7 @@ func messageChain(raw json.RawMessage, target *pb.Target) (*pb.MessageChain, err
 			return nil, fmt.Errorf("missing onebot %s segment value", segment.Type)
 		}
 		if segment.Type == "text" {
-			chain.Segments = append(chain.Segments, &pb.Segment{Data: &pb.Segment_Text{Text: &pb.TextSegment{Text: *value, Format: pb.TextFormat_TEXT_FORMAT_PLAIN.Enum()}}})
+			chain = append(chain, msg.TextSegment{Text: *value, Format: msg.FormatPlain})
 			continue
 		}
 		if segment.Type == "at" && *value == "all" {
@@ -300,9 +298,9 @@ func messageChain(raw json.RawMessage, target *pb.Target) (*pb.MessageChain, err
 		}
 		platformID := strconv.FormatInt(id, 10)
 		if segment.Type == "at" {
-			chain.Segments = append(chain.Segments, &pb.Segment{Data: &pb.Segment_Mention{Mention: &pb.MentionSegment{ExternalUserId: platformID}}})
+			chain = append(chain, msg.Mention(platformID))
 		} else {
-			chain.Segments = append(chain.Segments, &pb.Segment{Data: &pb.Segment_Reference{Reference: &pb.ReferenceSegment{OriginalPlatformMessageId: platformID, Target: target}}})
+			chain = append(chain, msg.Quote(msg.NewMessageRef(session, platformID, instanceID)))
 		}
 	}
 	return chain, nil
