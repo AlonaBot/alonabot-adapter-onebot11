@@ -123,7 +123,7 @@ func (i *instance) Account() adapter.Account { return i.account }
 func (*instance) Capabilities() []msg.Capability { return receiveCapabilities() }
 
 // Send 返回 UNSUPPORTED，且不会发起平台请求。
-func (*instance) Send(context.Context, msg.Session, msg.Chain) (*msg.SendResult, *errcode.Error) {
+func (*instance) Send(context.Context, string, msg.Chain) (*msg.SendResult, *errcode.Error) {
 	return nil, &errcode.Error{Code: errcode.Unsupported, Message: "onebot sending is unsupported"}
 }
 

@@ -129,7 +129,7 @@ func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*msg.Eve
 	if post.Time == nil || chatID == nil {
 		return nil, errors.New("missing onebot event time or chat ID")
 	}
-	event := &msg.Event{AdapterID: AdapterID, AdapterInstanceID: i.id, AccountID: i.account.ID, Session: msg.NewSession(AdapterID, prefix+strconv.FormatInt(*chatID, 10), ""), OccurredAt: time.Unix(*post.Time, 0), PlatformPayload: raw}
+	event := &msg.Event{AdapterID: AdapterID, AdapterInstanceID: i.id, AccountID: i.account.ID, Session: msg.SID(AdapterID, prefix+strconv.FormatInt(*chatID, 10), ""), OccurredAt: time.Unix(*post.Time, 0), PlatformPayload: raw}
 
 	// 3. 消息与通知分别构造对应的 payload，Core 保留字段留空。
 	if post.PostType == "message" {
@@ -199,7 +199,7 @@ func (i *instance) toMe(ctx context.Context, private bool, chain msg.Chain) bool
 		if !ok {
 			continue
 		}
-		_, platformID, _, _ := reference.Ref.Parts()
+		_, platformID, _, _ := msg.ParseRef(reference.Ref)
 		var message struct {
 			Sender struct {
 				UserID *int64 `json:"user_id"`
@@ -254,7 +254,7 @@ func (i *instance) actor(userID int64) *msg.Actor {
 	return &msg.Actor{ExternalUserID: strconv.FormatInt(userID, 10), AdapterInstanceID: i.id}
 }
 
-func messageChain(raw json.RawMessage, session msg.Session, instanceID string) (msg.Chain, error) {
+func messageChain(raw json.RawMessage, session string, instanceID string) (msg.Chain, error) {
 	var segments []struct {
 		Type string                     `json:"type"`
 		Data map[string]json.RawMessage `json:"data"`
@@ -300,7 +300,7 @@ func messageChain(raw json.RawMessage, session msg.Session, instanceID string) (
 		if segment.Type == "at" {
 			chain = append(chain, msg.Mention(platformID))
 		} else {
-			chain = append(chain, msg.Quote(msg.NewMessageRef(session, platformID, instanceID)))
+			chain = append(chain, msg.Quote(msg.Ref(session, platformID, instanceID)))
 		}
 	}
 	return chain, nil

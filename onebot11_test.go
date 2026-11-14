@@ -140,7 +140,7 @@ func TestReceiveLifecycle(t *testing.T) {
 			chat = "private:7"
 		}
 		want[n] = &msg.Event{AdapterID: onebot11.AdapterID, AdapterInstanceID: "integration", AccountID: "42",
-			Session: msg.NewSession(onebot11.AdapterID, chat, ""), OccurredAt: time.Unix(123, 0), PlatformPayload: raw[n]}
+			Session: msg.SID(onebot11.AdapterID, chat, ""), OccurredAt: time.Unix(123, 0), PlatformPayload: raw[n]}
 	}
 	chains := []msg.Chain{
 		{msg.TextSegment{Text: "hello", Format: msg.FormatPlain}},
