@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
 	"github.com/AlonaBot/AlonaBot/sdk"
 	"github.com/AlonaBot/AlonaBot/sdk/adapter"
 	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	msg "github.com/AlonaBot/AlonaBot/sdk/message"
+	"github.com/AlonaBot/alonabot-adapter-onebot11/perm"
 	"github.com/coder/websocket"
 )
 

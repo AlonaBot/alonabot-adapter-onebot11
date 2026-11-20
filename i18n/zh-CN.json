@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "name": "OneBot 11",
+    "description": "Official OneBot 11 adapter"
+  },
+  "messages": {
+    "permission.group_owner": "群主",
+    "permission.group_admin": "群管理员",
+    "permission.private_friend": "私聊好友"
+  }
+}

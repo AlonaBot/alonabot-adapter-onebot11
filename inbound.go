@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
 	"github.com/AlonaBot/AlonaBot/sdk"
 	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	msg "github.com/AlonaBot/AlonaBot/sdk/message"
+	"github.com/AlonaBot/alonabot-adapter-onebot11/perm"
 )
 
 var errStringMessage = errors.New("onebot implementation must post messages in array format")

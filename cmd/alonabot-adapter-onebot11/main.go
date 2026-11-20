@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11"
 	"github.com/AlonaBot/AlonaBot/sdk"
+	"github.com/AlonaBot/alonabot-adapter-onebot11"
 )
 
 func main() {

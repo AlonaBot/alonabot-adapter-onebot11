@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11"
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11/onebottest"
-	"github.com/AlonaBot/AlonaBot/adapters/onebot11/perm"
 	"github.com/AlonaBot/AlonaBot/sdk"
 	"github.com/AlonaBot/AlonaBot/sdk/adapter"
 	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	msg "github.com/AlonaBot/AlonaBot/sdk/message"
+	"github.com/AlonaBot/alonabot-adapter-onebot11"
+	"github.com/AlonaBot/alonabot-adapter-onebot11/onebottest"
+	"github.com/AlonaBot/alonabot-adapter-onebot11/perm"
 	"reflect"
 )
 

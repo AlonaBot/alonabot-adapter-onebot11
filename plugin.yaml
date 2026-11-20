@@ -1,0 +1,8 @@
+id: alonabot-adapter-onebot11
+name: OneBot 11
+version: 0.1.0
+author: AlonaBot
+role: adapter
+adapter_id: onebot11
+description: Official OneBot 11 adapter
+source: github.com/AlonaBot/alonabot-adapter-onebot11
