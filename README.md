@@ -1,7 +1,7 @@
 # AlonaBot OneBot 11 Adapter
 
 [![Go component](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml/badge.svg)](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml)
-[![License: AGPL v3](https://github.com/AlonaBot/alonabot-adapter-onebot11/blob/main/LICENSE)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 通过 AlonaBot SDK 接入 OneBot 11，实现正向、反向 Universal WebSocket、多实例账号绑定、断线重连、消息与通知接收、消息发送和平台动作。组件版本为 `0.1.1`。
 
@@ -133,4 +133,4 @@ alonabot pack . --target linux/amd64 --out bin
 
 协议字段依据 [OneBot 11 消息段](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md)和[公开 API](https://github.com/botuniverse/onebot-11/blob/master/api/public.md)，上传文件、poke 和 markdown 的具体支持取决于实现端响应。
 
-采用 [GNU AGPL-3.0-only](LICENSE)。
+采用 [MIT](LICENSE)。
