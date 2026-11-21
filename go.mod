@@ -5,7 +5,7 @@ go 1.27.1
 tool google.golang.org/protobuf/cmd/protoc-gen-go
 
 require (
-	github.com/AlonaBot/AlonaBot v0.0.0-20261120143159-a9c9e4d5812e
+	github.com/AlonaBot/AlonaBot v0.0.0-20261121011820-c3006b954c6f
 	github.com/coder/websocket v1.8.15
 )
 
@@ -14,5 +14,3 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace gorm.io/gorm => github.com/AlonaBot/gorm v1.31.3-0.20261120022453-34b98340007d
