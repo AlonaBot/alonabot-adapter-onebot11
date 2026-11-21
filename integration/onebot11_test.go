@@ -142,10 +142,16 @@ func TestReceiveLifecycle(t *testing.T) {
 		want[n] = &msg.Event{AdapterID: onebot11.AdapterID, AdapterInstanceID: "integration", AccountID: "42",
 			Session: msg.SID(onebot11.AdapterID, chat, ""), OccurredAt: time.Unix(123, 0), PlatformPayload: raw[n]}
 	}
+	for n := range want {
+		want[n].ChatType = msg.ChatGroup
+		if n == 0 {
+			want[n].ChatType = msg.ChatPrivate
+		}
+	}
 	chains := []msg.Chain{
 		{msg.TextSegment{Text: "hello", Format: msg.FormatPlain}},
-		{msg.MentionSegment{ExternalUserID: "42"}},
-		{},
+		{msg.MentionSegment{ExternalUserID: "42", Display: "Alona"}},
+		{msg.Image(msg.MediaSource{Incoming: &msg.IncomingMedia{Token: "image", Readability: msg.Unreadable}})},
 	}
 	for n := range 3 {
 		id := fmt.Sprint(n + 1)
@@ -154,6 +160,7 @@ func TestReceiveLifecycle(t *testing.T) {
 		want[n].Message = &msg.PlatformMessage{PlatformMessageID: id, Chain: chains[n]}
 		want[n].Payload = &msg.CreatedPayload{PlatformMessageID: id, Chain: chains[n], ToMe: n < 2}
 	}
+	want[0].ChatTitle = "Friend"
 	want[0].Actor = &msg.Actor{ExternalUserID: "7", AdapterInstanceID: "integration", DisplayName: "Friend", Permissions: []string{perm.PrivateFriend}}
 	want[1].Actor = &msg.Actor{ExternalUserID: "7", AdapterInstanceID: "integration", DisplayName: "Owner", Permissions: []string{perm.GroupOwner}}
 	want[3].Type = "message.deleted"

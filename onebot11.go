@@ -14,3 +14,5 @@ type component struct{ adapter.Adapter }
 
 // New 创建独立的适配器。
 func New() adapter.Adapter { return &component{implementation.New()} }
+
+//go:generate go run ./internal/schema

@@ -97,6 +97,9 @@ func (i *instance) maintainConnection(source *receiveConnection) {
 		}
 
 		// 3. 身份复核成功后恢复初始退避；不重放旧连接的任何请求。
+		i.mu.Lock()
+		i.ready = true
+		i.mu.Unlock()
 		source.valid = true
 		close(source.checked)
 		slog.Debug("reconnected onebot websocket", "adapter_instance_id", i.id, "url", i.config.safeURL)
