@@ -3,7 +3,7 @@
 [![Go component](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml/badge.svg)](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml)
 [![License: AGPL v3](https://github.com/AlonaBot/alonabot-adapter-onebot11/blob/main/LICENSE)](LICENSE)
 
-通过 AlonaBot SDK 接入 OneBot 11，实现正向、反向 Universal WebSocket、多实例账号绑定、断线重连、消息与通知接收、消息发送和平台动作。组件版本为 `0.1.0`。
+通过 AlonaBot SDK 接入 OneBot 11，实现正向、反向 Universal WebSocket、多实例账号绑定、断线重连、消息与通知接收、消息发送和平台动作。组件版本为 `0.1.1`。
 
 ## 配置实例
 
@@ -128,6 +128,8 @@ alonabot pack . --target linux/amd64 --out bin
 本地跨仓开发通过 `go.work` 引用对应 Core checkout。普通单元测试与本地 SDK 边界验证放在 `*_local_test.go`。本地测试覆盖完整通知/请求的类型化 Handler、Core HTTP 入口的反向鉴权与账号复核、SDK 媒体 URL 与共享路径的租约回收，以及慢取件取消。真实平台验收独立于模拟端测试。当前 SnowLuma v2.4.2 实测中，部分嵌套资源在接收端被返回为 `m_resid=""` 的 XML，正文与子节点会缺失；此时 ReadNodes 明确返回错误。该协议端问题影响部分群聊反向发送及混合正文/子转发的完整读取。
 
 运行中的 Core 可执行 `alonabot install --source AlonaBot/alonabot-adapter-onebot11 --yes`。发行说明位于 `changelog/<版本>/`。
+
+`0.1.1` 已验证可在公开 Core `v0.1.0` 上安装、启用及重启；`ReadNodes` 节点查询需要 Core #293 的节点查询与媒体授权实现，已在 `562fbcb57a11` 验证通过。Core `v0.1.0` 调用该接口返回 `NOT_FOUND: Core service not found`。需要节点查询及查询结果媒体授权时，先升级 Core。
 
 协议字段依据 [OneBot 11 消息段](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md)和[公开 API](https://github.com/botuniverse/onebot-11/blob/master/api/public.md)，上传文件、poke 和 markdown 的具体支持取决于实现端响应。
 
