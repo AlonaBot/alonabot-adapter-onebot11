@@ -19,6 +19,7 @@ import (
 const forwardMode = "forward"
 
 type connectionConfig struct {
+	Config
 	wsURL       string
 	accessToken string
 	safeURL     string
@@ -41,26 +42,50 @@ func parseConfig(raw []byte) (connectionConfig, error) {
 		}
 		return *text, nil
 	}
+	var config Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return connectionConfig{}, invalidField("config")
+	}
+	if config.Mode == "" {
+		config.Mode = forwardMode
+	}
+	if config.Mode != forwardMode && config.Mode != "reverse" {
+		return connectionConfig{}, invalidField("mode")
+	}
+	if config.Mode == "reverse" {
+		if id, err := strconv.ParseInt(config.SelfID, 10, 64); err != nil || id <= 0 {
+			return connectionConfig{}, invalidField("self_id")
+		}
+	}
+	// Core 的 object 配置会补齐空字段；两个路径都为空表示关闭共享目录。
+	if config.MediaDir != nil && config.MediaDir.Local == "" && config.MediaDir.Remote == "" {
+		config.MediaDir = nil
+	}
+	if config.MediaDir != nil && config.MediaDir.Remote == "" {
+		config.MediaDir.Remote = config.MediaDir.Local
+	}
+	if config.MediaDir != nil && config.MediaDir.Local == "" {
+		return connectionConfig{}, invalidField("media_dir")
+	}
 	endpoint, err := stringField("ws_url")
 	if err != nil {
 		return connectionConfig{}, err
 	}
 	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") || parsed.Fragment != "" {
+	if err != nil {
 		return connectionConfig{}, invalidField("ws_url")
 	}
-	mode, err := stringField("mode")
-	if err != nil {
-		return connectionConfig{}, err
-	}
-	if _, exists := fields["mode"]; exists && mode != forwardMode {
-		return connectionConfig{}, invalidField("mode")
+	if config.Mode == forwardMode && (err != nil || parsed.Hostname() == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") || parsed.Fragment != "") {
+		return connectionConfig{}, invalidField("ws_url")
 	}
 	token, err := stringField("access_token")
 	if err != nil {
 		return connectionConfig{}, err
 	}
 
+	if config.Mode == "reverse" && token == "" {
+		return connectionConfig{}, invalidField("access_token")
+	}
 	// URL 的用户信息和查询字符串只供连接使用，诊断路径提前生成脱敏表示。
 	clean := *parsed
 	clean.User, clean.RawQuery, clean.ForceQuery = nil, "", false
@@ -80,8 +105,10 @@ func parseConfig(raw []byte) (connectionConfig, error) {
 		httpURL.Scheme = "https"
 	}
 	clean.Scheme = httpURL.Scheme
-	replacements = append([]string{endpoint, safeURL, httpURL.String(), redact.Replace(clean.String())}, replacements...)
-	return connectionConfig{wsURL: endpoint, accessToken: token, safeURL: safeURL, redact: strings.NewReplacer(replacements...)}, nil
+	if endpoint != "" {
+		replacements = append([]string{endpoint, safeURL, httpURL.String(), redact.Replace(clean.String())}, replacements...)
+	}
+	return connectionConfig{Config: config, wsURL: endpoint, accessToken: token, safeURL: safeURL, redact: strings.NewReplacer(replacements...)}, nil
 }
 
 func invalidField(name string) error {
@@ -130,6 +157,8 @@ type apiResponse struct {
 	Status  string          `json:"status"`
 	Retcode *int            `json:"retcode"`
 	Data    json.RawMessage `json:"data"`
+	Message string          `json:"message"`
+	Wording string          `json:"wording"`
 }
 
 type apiResult struct {
@@ -138,13 +167,26 @@ type apiResult struct {
 }
 
 func (i *instance) call(ctx context.Context, action string, params any, result any) error {
+	return i.callAPI(ctx, action, params, result, false)
+}
+
+// apiCallError 保留请求是否可能写出，发送汇总据此区分拒绝与未知。
+type apiCallError struct {
+	cause     error
+	attempted bool
+}
+
+func (e *apiCallError) Error() string { return e.cause.Error() }
+func (e *apiCallError) Unwrap() error { return e.cause }
+
+func (i *instance) callAPI(ctx context.Context, action string, params any, result any, sending bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	// 1. 在写出请求前登记 echo，响应先到也能保留在独立的缓冲 channel。
 	i.mu.Lock()
 	conn := i.conn
-	if conn == nil || i.receiveCtx.Err() != nil {
+	if conn == nil || i.receiveCtx.Err() != nil || (sending && !i.ready) {
 		i.mu.Unlock()
 		return &sdk.Error{Code: errcode.Unavailable, Message: "onebot connection is closed"}
 	}
@@ -170,31 +212,48 @@ func (i *instance) call(ctx context.Context, action string, params any, result a
 	}
 	if err := conn.Write(ctx, websocket.MessageText, raw); err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return &apiCallError{cause: ctx.Err(), attempted: true}
 		}
-		return &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(err).Error()}
+		return &apiCallError{cause: &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(err).Error()}, attempted: true}
 	}
 
 	// 2. ctx 仅限制本次调用；等待应答期间不会暂停读取其他响应或上报。
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return &apiCallError{cause: ctx.Err(), attempted: true}
 	case received := <-response:
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return &apiCallError{cause: ctx.Err(), attempted: true}
 		}
 		if received.err != nil {
-			return received.err
+			return &apiCallError{cause: received.err, attempted: true}
 		}
 		if received.response.Retcode == nil {
-			return &sdk.Error{Code: errcode.Unavailable, Message: "onebot response has no retcode"}
+			return &apiCallError{cause: errcode.Unavailable.New("onebot response has no retcode"), attempted: true}
 		}
-		if received.response.Status != "ok" || *received.response.Retcode != 0 {
-			message := fmt.Sprintf("onebot API %s returned status %q retcode %d", action, received.response.Status, *received.response.Retcode)
-			return &sdk.Error{Code: errcode.Unavailable, Message: i.config.redact.Replace(message)}
+		if received.response.Status != "failed" && received.response.Status != "ok" && received.response.Status != "async" {
+			return &apiCallError{cause: errcode.Unavailable.New("invalid onebot response status " + i.config.redact.Replace(received.response.Status)), attempted: true}
+		}
+		if (received.response.Status != "ok" && received.response.Status != "async") || (*received.response.Retcode != 0 && received.response.Status != "async") {
+			message := fmt.Sprintf("onebot API %s returned status %q retcode %d", action, received.response.Status, *received.response.Retcode) + " " + received.response.Message + " " + received.response.Wording
+			if result != nil {
+				if err := json.Unmarshal(received.response.Data, result); err != nil {
+					return errors.Join(&sdk.Error{Code: errcode.FailedPrecondition, Message: i.config.redact.Replace(message)}, fmt.Errorf("decode failed API data: %w", i.config.safeError(err)))
+				}
+			}
+			return &sdk.Error{Code: errcode.FailedPrecondition, Message: i.config.redact.Replace(message)}
+		}
+		// 异步发送没有可用消息 ID；动作仍须保留平台 data，包括 null。
+		if result == nil {
+			return nil
+		}
+		if received.response.Status == "async" {
+			if _, raw := result.(*json.RawMessage); !raw {
+				return nil
+			}
 		}
 		if err := json.Unmarshal(received.response.Data, result); err != nil {
-			return fmt.Errorf("decode onebot %s data: %w", action, i.config.safeError(err))
+			return &apiCallError{cause: fmt.Errorf("decode onebot %s data: %w", action, i.config.safeError(err)), attempted: true}
 		}
 		return nil
 	}
@@ -278,6 +337,7 @@ func (i *instance) disconnect(conn *websocket.Conn, cause error) {
 		return
 	}
 	i.conn = nil
+	i.ready = false
 	for echo, response := range i.pending {
 		response <- apiResult{err: &sdk.Error{Code: errcode.Unavailable, Message: i.config.safeError(cause).Error()}}
 		delete(i.pending, echo)

@@ -1,5 +1,41 @@
 {
-  "ws_url": {"type": "string", "required": true},
-  "access_token": {"type": "string", "secret": true},
-  "mode": {"type": "string", "options": ["forward"], "default": "forward"}
+  "access_token": {
+    "description": "reverse 模式必填；forward 模式可选，启动时按 mode 校验",
+    "secret": true,
+    "type": "string"
+  },
+  "media_dir": {
+    "items": {
+      "local": {
+        "type": "string"
+      },
+      "remote": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "media_url_base": {
+    "type": "string"
+  },
+  "mode": {
+    "default": "forward",
+    "options": [
+      "forward",
+      "reverse"
+    ],
+    "type": "string"
+  },
+  "self_id": {
+    "condition": {
+      "mode": "reverse"
+    },
+    "type": "string"
+  },
+  "ws_url": {
+    "condition": {
+      "mode": "forward"
+    },
+    "type": "string"
+  }
 }

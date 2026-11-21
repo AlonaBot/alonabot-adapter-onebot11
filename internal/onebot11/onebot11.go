@@ -1,4 +1,4 @@
-// Package onebot11 实现官方 OneBot 11 Adapter 的正向 WebSocket 连接与事件接收。
+// Package onebot11 实现官方 OneBot 11 Adapter 的正反向 WebSocket、事件接收、消息发送与平台动作。
 //
 // [New] 创建供 sdk.RunAdapter 使用的 Adapter。每个实例独占连接、读取循环和
 // 逐条交付循环；API 请求通过实例内递增的 echo 配对，生命周期由 Stop 管理。
@@ -7,6 +7,7 @@ package onebot11
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"sync"
 
@@ -24,13 +25,21 @@ const AdapterID = "onebot11"
 // eventQueueCapacity 遵循 CONTRACTS §8 的实例接收队列容量。
 const eventQueueCapacity = 256
 
-type onebotAdapter struct{}
+type onebotAdapter struct {
+	mu        sync.Mutex
+	instances map[string]*instance
+	titles    map[int64]*groupTitle
+}
 
 // New 创建 OneBot 11 Adapter，账号身份在 Start 中通过 get_login_info 验证。
-func New() adapter.Adapter { return &onebotAdapter{} }
+func New() adapter.Adapter {
+	return &onebotAdapter{instances: make(map[string]*instance), titles: make(map[int64]*groupTitle)}
+}
 
-func receiveCapabilities() []msg.Capability {
+func platformCapabilities() []msg.Capability {
 	return []msg.Capability{
+		{Name: "message.send", Version: 1, Supported: true},
+		{Name: "message.reference", Version: 1, Supported: true}, {Name: "message.voice", Version: 1, Supported: true}, {Name: "message.forward", Version: 1, Supported: true}, {Name: "message.delete", Version: 1, Supported: true}, {Name: "media.read", Version: 1, Supported: true},
 		{Name: "message.created", Version: 1, Supported: true},
 		{Name: "message.deleted", Version: 1, Supported: true},
 		{Name: "member.joined", Version: 1, Supported: true},
@@ -39,9 +48,11 @@ func receiveCapabilities() []msg.Capability {
 }
 
 // Descriptor 声明接收能力和平台事实权限。
-func (*onebotAdapter) Descriptor() *adapter.Descriptor {
+func (a *onebotAdapter) Descriptor() *adapter.Descriptor {
 	return &adapter.Descriptor{
-		AdapterID: AdapterID, Capabilities: receiveCapabilities(),
+		AdapterID: AdapterID, Capabilities: platformCapabilities(),
+		HTTP:       []adapter.HTTPRoute{{Method: "GET", Path: "/ws/", Auth: adapter.AuthPlatformToken, Handler: http.HandlerFunc(a.reverseHTTP)}},
+		Extensions: extensionDeclarations(), Events: eventDeclarations(), Actions: actionDeclarations(),
 		Permissions: []adapter.PermissionDeclaration{
 			{Name: perm.GroupOwner, Implies: []string{perm.GroupAdmin}, LabelKey: "permission.group_owner"},
 			{Name: perm.GroupAdmin, Implies: []string{"chat_admin"}, LabelKey: "permission.group_admin"},
@@ -51,13 +62,9 @@ func (*onebotAdapter) Descriptor() *adapter.Descriptor {
 }
 
 // Start 验证配置、连接和账号，成功后将读取与交付循环交给 Stop 管理。
-func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, core adapter.Core) (adapter.Instance, error) {
+func (a *onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, core adapter.Core) (adapter.Instance, error) {
 	// 1. 配置原文含凭证，校验错误只返回字段名。
 	config, err := parseConfig(request.ConfigJSON)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := config.dial(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,13 +73,35 @@ func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, c
 	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	receiveCtx, cancelReceive := context.WithCancel(lifetime)
 	i := &instance{
-		config: config, core: core, id: request.InstanceID,
-		conn: conn, pending: make(map[string]chan apiResult),
-		ctx: lifetime, cancel: cancel, done: make(chan struct{}),
+		config: config, core: core, id: request.InstanceID, owner: a,
+		pending: make(map[string]chan apiResult),
+		ctx:     lifetime, cancel: cancel, done: make(chan struct{}),
 		receiveCtx: receiveCtx, cancelReceive: cancelReceive,
 		deliveryDone: make(chan struct{}), failures: make(chan *errcode.Error, 1),
 		events: make(chan receivedEvent, eventQueueCapacity),
 	}
+	if config.Mode == "reverse" {
+		i.account = adapter.Account{ID: config.SelfID}
+		i.incoming = make(chan *websocket.Conn, 1)
+		a.mu.Lock()
+		if _, exists := a.instances[i.id]; exists {
+			a.mu.Unlock()
+			cancel()
+			return nil, errcode.AlreadyExists.New("instance already exists")
+		}
+		a.instances[i.id] = i
+		a.mu.Unlock()
+		i.remove = func() { a.mu.Lock(); delete(a.instances, i.id); a.mu.Unlock() }
+		go i.deliverEvents()
+		go i.maintainReverse()
+		return i, nil
+	}
+	conn, err := config.dial(ctx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	i.conn = conn
 	source := i.startRead(conn)
 	account, err := i.login(ctx)
 	if err != nil {
@@ -82,6 +111,9 @@ func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, c
 		return nil, &sdk.Error{Code: errcode.Unavailable, Message: config.safeError(err).Error()}
 	}
 	i.account = account
+	i.mu.Lock()
+	i.ready = true
+	i.mu.Unlock()
 	source.valid = true
 	close(source.checked) // 先发布账号复核结果，再让交付循环消费该连接的上报。
 	// 3. 登录成功后才启动生命周期管理，Start 失败始终不重试。
@@ -95,6 +127,7 @@ func (*onebotAdapter) Start(ctx context.Context, request adapter.StartRequest, c
 // 读取循环唯一写入 events；交付循环按连接的账号复核结果消费上报。
 // receiveCtx 控制平台读写与交付；致命故障先结束这些操作，再用 ctx 报告故障，Stop 可取消两者。
 type instance struct {
+	owner         *onebotAdapter
 	config        connectionConfig
 	core          adapter.Core
 	id            string
@@ -110,25 +143,35 @@ type instance struct {
 	dropped       uint64 // 仅由读取循环累加。
 	ignored       uint64 // 仅由交付循环累加。
 
-	mu       sync.Mutex
-	conn     *websocket.Conn
-	nextEcho uint64
-	pending  map[string]chan apiResult
+	incoming    chan *websocket.Conn
+	remove      func()
+	displayName string // mu 保护反向连接登录后取得的昵称。
+	ready       bool   // mu 保护，账号复核后开放平台操作。
+	mu          sync.Mutex
+	conn        *websocket.Conn
+	nextEcho    uint64
+	pending     map[string]chan apiResult
 }
 
-// Account 返回 get_login_info 验证过的账号身份。
-func (i *instance) Account() adapter.Account { return i.account }
-
-// Capabilities 返回实例的接收能力。
-func (*instance) Capabilities() []msg.Capability { return receiveCapabilities() }
-
-// Send 返回 UNSUPPORTED，且不会发起平台请求。
-func (*instance) Send(context.Context, string, msg.Chain) (*msg.SendResult, *errcode.Error) {
-	return nil, &errcode.Error{Code: errcode.Unsupported, Message: "onebot sending is unsupported"}
+// Account 返回绑定账号；反向连接验证后补充平台昵称。
+func (i *instance) Account() adapter.Account {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	account := i.account
+	if i.displayName != "" {
+		account.DisplayName = i.displayName
+	}
+	return account
 }
+
+// Capabilities 返回实例的收发能力。
+func (*instance) Capabilities() []msg.Capability { return platformCapabilities() }
 
 // Stop 取消退避、握手、读取和交付，等待全部循环与故障报告结束后返回。
 func (i *instance) Stop(context.Context) error {
+	if i.remove != nil {
+		i.remove()
+	}
 	i.cancel()
 	i.stopReceive()
 	<-i.done

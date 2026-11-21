@@ -2,10 +2,12 @@ package onebot11
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	urlpkg "net/url"
 	"strconv"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/AlonaBot/AlonaBot/sdk/errcode"
 	msg "github.com/AlonaBot/AlonaBot/sdk/message"
 	"github.com/AlonaBot/alonabot-adapter-onebot11/perm"
+	segmentpkg "github.com/AlonaBot/alonabot-adapter-onebot11/segment"
 )
 
 var errStringMessage = errors.New("onebot implementation must post messages in array format")
@@ -100,7 +103,7 @@ func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*msg.Eve
 		return nil, errStringMessage
 	}
 
-	// 2. 只映射已声明的事件；其他 notice/request 明确忽略并累计诊断。
+	// 2. 标准通知归一化，其余通知与请求走已声明的扩展事件。
 	group := post.MessageType == "group"
 	switch post.PostType {
 	case "message":
@@ -108,16 +111,8 @@ func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*msg.Eve
 			i.ignore(post)
 			return nil, nil
 		}
-	case "notice":
-		switch post.NoticeType {
-		case "group_recall", "group_increase", "group_decrease":
-			group = true
-		case "friend_recall":
-			group = false
-		default:
-			i.ignore(post)
-			return nil, nil
-		}
+	case "notice", "request":
+		group = post.GroupID != nil
 	default:
 		i.ignore(post)
 		return nil, nil
@@ -126,14 +121,28 @@ func (i *instance) normalize(ctx context.Context, raw json.RawMessage) (*msg.Eve
 	if group {
 		chatID, prefix = post.GroupID, "group:"
 	}
-	if post.Time == nil || chatID == nil {
+	if post.Time == nil || (chatID == nil && post.PostType == "message") {
 		return nil, errors.New("missing onebot event time or chat ID")
 	}
-	event := &msg.Event{AdapterID: AdapterID, AdapterInstanceID: i.id, AccountID: i.account.ID, Session: msg.SID(AdapterID, prefix+strconv.FormatInt(*chatID, 10), ""), OccurredAt: time.Unix(*post.Time, 0), PlatformPayload: raw}
+	session := ""
+	if chatID != nil {
+		session = msg.SID(AdapterID, prefix+strconv.FormatInt(*chatID, 10), "")
+	}
+	event := &msg.Event{AdapterID: AdapterID, AdapterInstanceID: i.id, AccountID: i.account.ID, Session: session, OccurredAt: time.Unix(*post.Time, 0), PlatformPayload: raw}
 
+	event.ChatTitle = i.chatTitle(ctx, post)
+	if chatID != nil {
+		event.ChatType = msg.ChatPrivate
+		if group {
+			event.ChatType = msg.ChatGroup
+		}
+	}
 	// 3. 消息与通知分别构造对应的 payload，Core 保留字段留空。
 	if post.PostType == "message" {
 		return i.messageEvent(ctx, post, event)
+	}
+	if post.PostType == "request" || (post.NoticeType != "group_recall" && post.NoticeType != "friend_recall" && post.NoticeType != "group_increase" && post.NoticeType != "group_decrease") {
+		return i.extensionEvent(raw, post, event)
 	}
 	return i.noticeEvent(post, event)
 }
@@ -153,6 +162,7 @@ func (i *instance) messageEvent(ctx context.Context, post onebotPost, event *msg
 	if err != nil {
 		return nil, err
 	}
+	i.enrichMentions(ctx, post, chain)
 	// 2. 权限只写平台事实，隐含关系留给 Core 展开。
 	if post.SubType != "anonymous" {
 		event.Actor = i.actor(*post.UserID)
@@ -255,17 +265,17 @@ func (i *instance) actor(userID int64) *msg.Actor {
 }
 
 func messageChain(raw json.RawMessage, session string, instanceID string) (msg.Chain, error) {
+	chain := msg.Chain{}
 	var segments []struct {
 		Type string                     `json:"type"`
 		Data map[string]json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &segments); err != nil {
-		return nil, fmt.Errorf("decode onebot message array: %w", err)
+		return chain, fmt.Errorf("decode onebot message array: %w", err)
 	}
 	if segments == nil {
-		return nil, errors.New("missing onebot message array")
+		return chain, errors.New("missing onebot message array")
 	}
-	chain := msg.Chain{}
 	for _, segment := range segments {
 		var field string
 		switch segment.Type {
@@ -275,26 +285,153 @@ func messageChain(raw json.RawMessage, session string, instanceID string) (msg.C
 			field = "qq"
 		case "reply":
 			field = "id"
+		case "markdown":
+			var text string
+			for _, key := range []string{"markdown", "content"} {
+				if value, ok := segment.Data[key]; ok {
+					if json.Unmarshal(value, &text) == nil {
+						break
+					}
+				}
+			}
+			if text != "" {
+				chain = append(chain, msg.Markdown(text))
+			}
+			raw, err := json.Marshal(segment.Data)
+			if err != nil {
+				return chain, err
+			}
+			chain = append(chain, msg.Extension(AdapterID, "onebot11.markdown", 1, segmentpkg.Raw{Data: string(raw)}))
+			continue
+		case "image", "video", "record", "file":
+			var file, url, name string
+			for _, field := range []struct {
+				key    string
+				target *string
+			}{{"file", &file}, {"url", &url}, {"name", &name}, {"file_name", &name}} {
+				key, target := field.key, field.target
+				if value, ok := segment.Data[key]; ok {
+					if err := json.Unmarshal(value, target); err != nil {
+						return chain, fmt.Errorf("decode media %s: %w", key, err)
+					}
+				}
+			}
+			readability := msg.Unreadable
+			token := file
+			if url != "" {
+				token = url
+				parsed, err := urlpkg.Parse(url)
+				if err != nil {
+					return chain, err
+				}
+				if parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+					readability = msg.Readable
+				}
+			}
+			if segment.Type == "file" && url == "" {
+				var descriptor platformFile
+				descriptor.Session = session
+				descriptor.Data = segment.Data
+				if value, ok := segment.Data["file_id"]; ok {
+					if err := json.Unmarshal(value, &descriptor.ID); err != nil {
+						return chain, err
+					}
+				} else {
+					descriptor.ID = file
+				}
+				if descriptor.ID != "" {
+					encoded, err := json.Marshal(descriptor)
+					if err != nil {
+						return chain, err
+					}
+					token = fileTokenPrefix + base64.RawURLEncoding.EncodeToString(encoded)
+					readability = msg.Readable
+				}
+			}
+			if token == "" {
+				return chain, fmt.Errorf("missing onebot %s media source", segment.Type)
+			}
+			source := msg.MediaSource{Incoming: &msg.IncomingMedia{Token: token, Readability: readability}}
+			if rawSize, ok := segment.Data["size"]; ok {
+				var size json.Number
+				if err := json.Unmarshal(rawSize, &size); err != nil {
+					return chain, fmt.Errorf("decode media size: %w", err)
+				}
+				if size != "" {
+					value, err := strconv.ParseUint(string(size), 10, 64)
+					if err != nil {
+						return chain, fmt.Errorf("parse media size: %w", err)
+					}
+					source.Incoming.Size = value
+				}
+			}
+			switch segment.Type {
+			case "image":
+				chain = append(chain, msg.Image(source))
+			case "video":
+				chain = append(chain, msg.Video(source))
+			case "record":
+				chain = append(chain, msg.Voice(source))
+			case "file":
+				chain = append(chain, msg.File(source, name))
+			}
+			continue
+		case "forward":
+			var id string
+			if err := json.Unmarshal(segment.Data["id"], &id); err != nil || id == "" {
+				return chain, errors.New("invalid onebot forward id")
+			}
+			chain = append(chain, msg.ForwardSegment{PlatformForwardID: id})
+			continue
+		case "face":
+			field = "id"
 		default:
-			continue // 无通用对应的片段仅保留在 platform_payload。
+			raw, err := json.Marshal(segment.Data)
+			if err != nil {
+				return chain, err
+			}
+			name := "onebot11." + segment.Type
+			if !rawSegment(segment.Type) {
+				name = "onebot11.segment"
+				raw, err = json.Marshal(segment)
+				if err != nil {
+					return chain, err
+				}
+			}
+			chain = append(chain, msg.Extension(AdapterID, name, 1, segmentpkg.Raw{Data: string(raw)}))
+			continue
 		}
+		var scalar json.Number
 		var value *string
-		if err := json.Unmarshal(segment.Data[field], &value); err != nil {
-			return nil, fmt.Errorf("decode onebot %s segment: %w", segment.Type, err)
+		if segment.Type == "face" || segment.Type == "at" || segment.Type == "reply" {
+			if err := json.Unmarshal(segment.Data[field], &scalar); err == nil {
+				v := scalar.String()
+				value = &v
+			}
 		}
 		if value == nil {
-			return nil, fmt.Errorf("missing onebot %s segment value", segment.Type)
+			if err := json.Unmarshal(segment.Data[field], &value); err != nil {
+				return chain, fmt.Errorf("decode onebot %s segment: %w", segment.Type, err)
+			}
+		}
+		if value == nil {
+			return chain, fmt.Errorf("missing onebot %s segment value", segment.Type)
 		}
 		if segment.Type == "text" {
 			chain = append(chain, msg.TextSegment{Text: *value, Format: msg.FormatPlain})
 			continue
 		}
+		if segment.Type == "face" {
+			chain = append(chain, msg.Extension(AdapterID, "onebot11.face", 1, segmentpkg.Face{ID: *value}))
+			continue
+		}
 		if segment.Type == "at" && *value == "all" {
+			chain = append(chain, msg.Extension(AdapterID, "onebot11.at_all", 1, segmentpkg.Empty{}))
 			continue
 		}
 		id, err := strconv.ParseInt(*value, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("parse onebot %s segment ID: %w", segment.Type, err)
+			return chain, fmt.Errorf("parse onebot %s segment ID: %w", segment.Type, err)
 		}
 		platformID := strconv.FormatInt(id, 10)
 		if segment.Type == "at" {
