@@ -134,11 +134,3 @@ alonabot pack . --target linux/amd64 --out bin
 协议字段依据 [OneBot 11 消息段](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md)和[公开 API](https://github.com/botuniverse/onebot-11/blob/master/api/public.md)，上传文件、poke 和 markdown 的具体支持取决于实现端响应。
 
 采用 [MIT](LICENSE)。
-
-## 新 SDK 联调与升级
-
-Adapter 实例 Schema 保持 `adapter_config_schema.json`。Go 源文件名自由，包级 `New` 保持现行签名。旧 `config_schema.json` 须改名并用新 SDK 重建。升级先停用旧组件、升级 Core，再更新组件包并启用；配置值与用户数据保留。
-
-新 SDK 发布前，通过本机临时 `go.work` 同时 `use` Core 和本组件 worktree，执行 `go test`、`go build` 和本地 Core CLI 的 `check`。`pack` 会使用临时 modfile，需在独立临时源码副本中添加指向本地 Core 的 `replace`，设置 `GOWORK=off` 后打包；保留原 worktree 的 `go.mod`。正式发行前将 `go.mod` 中 SDK 固定到真实发布版本，重新构建五平台归档，组件发布后再更新 Core 的 `components.lock.json`。
-
-For local integration before the SDK release, use a temporary `go.work` containing Core and this component, then run Go checks and the locally built Core CLI's `check`. For `pack`, add a local Core `replace` in a disposable source copy and set `GOWORK=off`, preserving the original worktree's module declarations. Pin the published SDK before releasing rebuilt packages. Disable the old component, upgrade Core, update the component package, then enable it; configuration values and user data are retained. Adapter instance Schemas keep `adapter_config_schema.json`; plugin and Agent Schemas use `plugin_config_schema.json`.
