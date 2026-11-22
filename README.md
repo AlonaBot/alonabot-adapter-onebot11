@@ -3,7 +3,7 @@
 [![Go component](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml/badge.svg)](https://github.com/AlonaBot/alonabot-adapter-onebot11/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-通过 AlonaBot SDK 接入 OneBot 11，实现正向、反向 Universal WebSocket、多实例账号绑定、断线重连、消息与通知接收、消息发送和平台动作。组件版本为 `0.1.1`。
+通过 AlonaBot SDK 接入 OneBot 11，实现正向、反向 Universal WebSocket、多实例账号绑定、断线重连、消息与通知接收、消息发送和平台动作。组件版本为 `0.2.0`。
 
 ## 配置实例
 
