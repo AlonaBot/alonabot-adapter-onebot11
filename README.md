@@ -6,7 +6,7 @@ Connect OneBot 11 implementations over forward or reverse Universal WebSocket, i
 
 ## Quick start
 
-Use Core v0.2.0 or later. On the machine running Core:
+Use Core v0.3.0 or later. On the machine running Core:
 
 ```fish
 alonabot install --source AlonaBot/alonabot-adapter-onebot11 --yes
