@@ -2,7 +2,7 @@
 
 [简体中文](usage.zh-CN.md)
 
-Use Core v0.2.0 or later, which includes ReadNodes and media authorization. See [README](../README.md) for installation. `go.mod` pins the SDK and packager.
+Use Core v0.3.0 or later, which includes ReadNodes and media authorization. See [README](../README.md) for installation. `go.mod` pins the SDK and packager.
 
 ## Configure an instance
 

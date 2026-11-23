@@ -2,7 +2,7 @@
 
 [English](usage.md)
 
-使用 Core v0.2.0 或更高版本，包含 ReadNodes 节点查询和媒体授权。安装入口见 [README](../README.zh-CN.md)，SDK 与打包器固定到 `go.mod`。
+使用 Core v0.3.0 或更高版本，包含 ReadNodes 节点查询和媒体授权。安装入口见 [README](../README.zh-CN.md)，SDK 与打包器固定到 `go.mod`。
 
 ## 配置实例
 
