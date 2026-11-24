@@ -37,7 +37,7 @@ func (c *Client) Call(name string, params any) (json.RawMessage, error) {
 // Declared 报告 API 名是否属于公开的 v1 动作清单。
 func Declared(name string) bool {
 	switch name {
-	case "get_group_file_url", "get_private_file_url", "set_group_ban", "set_group_whole_ban", "set_group_kick", "set_group_card", "set_group_admin", "set_group_name", "set_group_leave", "get_group_info", "get_group_member_info", "get_group_member_list", "get_msg", "get_forward_msg", "poke", "set_friend_add_request", "set_group_add_request", "get_stranger_info", "get_friend_list", "get_group_list", "send_like":
+	case "get_group_file_url", "get_private_file_url", "set_group_ban", "set_group_whole_ban", "set_group_kick", "set_group_card", "set_group_special_title", "set_group_admin", "set_group_name", "set_group_leave", "get_group_info", "get_group_member_info", "get_group_member_list", "get_msg", "get_forward_msg", "poke", "set_friend_add_request", "set_group_add_request", "get_stranger_info", "get_friend_list", "get_group_list", "send_like":
 		return true
 	}
 	return false

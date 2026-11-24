@@ -73,6 +73,36 @@ c.Logger().Info("group queried", "name", result.Value.GroupName)
 
 Typed methods cover group management, friend/group approvals, group/member/friend/stranger queries, messages and forwards, group/private file URLs, pokes, and likes. Query `Result[T]` retains both `Value` and full JSON `Raw`. `Call("get_msg", params)` accepts only declared API names; Core applies declaration scope, instance, permission, and parent-call checks. Calls inherit handler cancellation and deadlines. Asynchronous actions retain response `data`, including objects, arrays, and `null`; asynchronous sends mark the message ID unavailable.
 
+### Set or clear a member's special title
+
+From a group handler, use the bound client to set a member's title:
+
+```go
+_, err = bound.SetGroupSpecialTitle(client.SetGroupSpecialTitleParams{
+    UserID:       "123456789",
+    SpecialTitle: "Helper",
+})
+if err != nil {
+    return err
+}
+```
+
+Set `SpecialTitle: ""` to clear the title. The group comes from the current trusted conversation. Omit `Duration` to use the OneBot 11 default of `-1` (permanent); for an explicit lifetime in seconds, pass a pointer:
+
+```go
+duration := int64(3600)
+_, err = bound.SetGroupSpecialTitle(client.SetGroupSpecialTitleParams{
+    UserID:       "123456789",
+    SpecialTitle: "Helper",
+    Duration:     &duration,
+})
+if err != nil {
+    return err
+}
+```
+
+Explicit duration values, including `0` and `-1`, are forwarded unchanged; lifetime support depends on the OneBot implementation. The action is declared as `onebot11.set_group_special_title` version 1. Backend failures, including insufficient permissions and unsupported operations, retain the response data and error details for the plugin.
+
 ## Mention names and quoted contents
 
 Private titles use the sender nickname. Group names are queried once per process on first encounter; failures produce diagnostics and cache an empty result. Inbound mentions prefer the event sender and verified account nickname; other names are queried from group members or strangers to populate `MentionSegment.Display`. Repeated mentions in one event share a query. Failures log `onebot mention display lookup failed` and still deliver the original message and mention. Plugins can call `GetGroupMemberInfo` or `GetStrangerInfo` for fresh details.

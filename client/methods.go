@@ -45,6 +45,18 @@ func (c *Client) SetGroupCard(p SetGroupCardParams) (json.RawMessage, error) {
 	return c.Call("set_group_card", p)
 }
 
+// SetGroupSpecialTitleParams 指定当前群成员的专属头衔，数字 ID 采用十进制字符串。
+type SetGroupSpecialTitleParams struct {
+	UserID       string `json:"user_id"`
+	SpecialTitle string `json:"special_title"`      // 空字符串清除头衔。
+	Duration     *int64 `json:"duration,omitempty"` // 单位秒；nil 采用协议默认值 -1（永久）。
+}
+
+// SetGroupSpecialTitle 设置或清除当前群成员的专属头衔，并保留完整平台结果。
+func (c *Client) SetGroupSpecialTitle(p SetGroupSpecialTitleParams) (json.RawMessage, error) {
+	return c.Call("set_group_special_title", p)
+}
+
 // SetGroupAdminParams 保存 set_group_admin 的参数，数字 ID 采用十进制字符串。
 type SetGroupAdminParams struct {
 	UserID string `json:"user_id"`

@@ -61,6 +61,36 @@ c.Logger().Info("group queried", "name", result.Value.GroupName)
 
 类型化方法覆盖群管理、好友和群审批、群/成员/好友/陌生人查询、消息和转发查询、群及私聊文件 URL 查询、戳一戳与点赞。查询的 `Result[T]` 同时保留 `Value` 和完整 JSON `Raw`。`Call("get_msg", params)` 只接受声明的 API 名；Core 继续执行声明范围、实例、权限和父调用检查。业务调用沿用 Handler 的取消与期限。异步动作仍保留响应 `data`，包括对象、数组与 `null`；异步发送标记消息 ID 不可用。
 
+### 设置或清除成员专属头衔
+
+在群消息 Handler 中，通过绑定当前会话的客户端设置成员头衔：
+
+```go
+_, err = bound.SetGroupSpecialTitle(client.SetGroupSpecialTitleParams{
+    UserID:       "123456789",
+    SpecialTitle: "热心群友",
+})
+if err != nil {
+    return err
+}
+```
+
+将 `SpecialTitle` 设为 `""` 即可清除头衔，群号由当前可信会话提供。省略 `Duration` 时采用 OneBot 11 默认值 `-1`（永久）；显式指定有效期时，传入以秒为单位的整数指针：
+
+```go
+duration := int64(3600)
+_, err = bound.SetGroupSpecialTitle(client.SetGroupSpecialTitleParams{
+    UserID:       "123456789",
+    SpecialTitle: "热心群友",
+    Duration:     &duration,
+})
+if err != nil {
+    return err
+}
+```
+
+显式有效期（包括 `0` 和 `-1`）均原样转发，实际生效情况取决于 OneBot 实现端。动作声明为 `onebot11.set_group_special_title`，版本为 1。后端权限不足、动作不受支持等失败会将响应数据和错误详情返回插件。
+
 ### 查询提及昵称与引用内容
 
 会话标题取私聊发送者昵称，群名在进程内首次遇到时查询一次，失败记诊断并缓存空结果。入站提及会优先使用事件发送者与已验证的账号昵称，其余通过群成员或陌生人查询补充 `MentionSegment.Display`；同一事件中的重复提及共用查询结果。查询失败记录 `onebot mention display lookup failed`，原消息和提及仍交付。插件也可调用 `GetGroupMemberInfo` 或 `GetStrangerInfo` 按需取得最新资料。
