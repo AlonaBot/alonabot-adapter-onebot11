@@ -2,6 +2,10 @@
 
 [English](README.md)
 
+<p align="center">
+  <img src="assets/onebot.png" alt="OneBot" width="160">
+</p>
+
 通过正向或反向 Universal WebSocket 接入 OneBot 11 实现端，支持媒体及递归转发节点。
 
 ## 快速使用
@@ -28,3 +32,5 @@ alonabot install --source AlonaBot/alonabot-adapter-onebot11 --yes
 ## 许可
 
 [MIT](LICENSE)
+
+[OneBot 标识](https://github.com/botuniverse/onebot/blob/d533f0fca3bd14781d4461776dba8d907d9de253/specs/assets/images/logo.png)由 OneBot Community 提供，以 MIT 许可原样使用；版权声明已保留在 [LICENSE](LICENSE) 中。
