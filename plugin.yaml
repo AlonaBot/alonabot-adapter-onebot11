@@ -5,4 +5,5 @@ author: AlonaBot
 role: adapter
 adapter_id: onebot11
 description: Official OneBot 11 adapter
+icon: assets/onebot.png
 source: github.com/AlonaBot/alonabot-adapter-onebot11
