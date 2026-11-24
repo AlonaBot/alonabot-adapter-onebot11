@@ -10,8 +10,10 @@
 ## Changed
 
 - Verify the account after reconnecting and retain partial send results and errors.
-- Pin the SDK to Core `v0.1.1-0.20261121053743-7ca08ec8967e` for node queries and media authorization.
-- Installation, activation and restart work on Core `v0.1.0`. `ReadNodes` requires the node-query and media-authorization implementation from Core #293, verified on `562fbcb57a11`. Upgrade Core before using node queries and media authorization for queried nodes.
+
+## Upgrade requirements
+
+- `ReadNodes` requires Core #293's node-query and media-authorization implementation. Upgrade Core before using these capabilities.
 
 ## Known issues
 
