@@ -18,6 +18,7 @@ func actionDeclarations() []adapter.ActionDeclaration {
 		adapter.Action[client.SetGroupWholeBanParams, map[string]any]("onebot11.set_group_whole_ban", 1, adapter.ActionScopeChat),
 		adapter.Action[client.SetGroupKickParams, map[string]any]("onebot11.set_group_kick", 1, adapter.ActionScopeChat),
 		adapter.Action[client.SetGroupCardParams, map[string]any]("onebot11.set_group_card", 1, adapter.ActionScopeChat),
+		adapter.Action[client.SetGroupSpecialTitleParams, map[string]any]("onebot11.set_group_special_title", 1, adapter.ActionScopeChat),
 		adapter.Action[client.SetGroupAdminParams, map[string]any]("onebot11.set_group_admin", 1, adapter.ActionScopeChat),
 		adapter.Action[client.SetGroupNameParams, map[string]any]("onebot11.set_group_name", 1, adapter.ActionScopeChat),
 		adapter.Action[client.SetGroupLeaveParams, map[string]any]("onebot11.set_group_leave", 1, adapter.ActionScopeChat),
@@ -93,7 +94,7 @@ func (i *instance) Action(ctx context.Context, to, name string, version uint32, 
 			return nil, &errcode.Error{Code: errcode.Unsupported, Message: "action requires group target"}
 		}
 		params["group_id"] = target["group_id"]
-	case "onebot11.set_group_card":
+	case "onebot11.set_group_card", "onebot11.set_group_special_title":
 		target, err := targetParams(to)
 		if err != nil {
 			return nil, safePublic(err)
