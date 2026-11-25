@@ -2,11 +2,7 @@
 
 ### Changed
 
-- Switch to five `.tar.gz` platform archives, including Windows amd64; GitHub supplies source archives. Standalone `release.json`, signatures and public-key assets are retired.
-
-### Upgrade requirements
-
-- Upgrade Core to v0.2.0 before installing or updating this release.
+- You can install this release from one platform archive without separate manifest, signature or public-key files. This format requires the archive installer introduced in Core v0.2.0.
 
 ### Known issues
 
