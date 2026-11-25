@@ -2,18 +2,15 @@
 
 ## Added
 
-- Reverse Universal WebSocket with token authentication and account verification.
-- Typed OneBot events, platform actions, queries and native message segments, with original platform data retained.
-- Recursive forward and reply queries, nested forward sending, file URL queries and inbound Markdown.
-- Uploaded media delivery through shared directories or temporary Core URLs, with cancellation and lease cleanup.
+- You can connect via reverse Universal WebSocket, with token authentication and account verification.
+- Plugins can use typed OneBot events, actions, queries and native message segments and still access the original platform data.
+- Plugins can use `ReadNodes` to read replies and forwarded messages recursively. Node queries and media access require Core v0.1.1 ([#293](https://github.com/AlonaBot/AlonaBot/pull/293)).
+- The adapter can send nested forwards, query file URLs and receive Markdown.
+- Uploaded media can be delivered through a shared directory or a temporary Core URL.
 
 ## Changed
 
 - Verify the account after reconnecting and retain partial send results and errors.
-
-## Upgrade requirements
-
-- `ReadNodes` requires Core #293's node-query and media-authorization implementation. Upgrade Core before using these capabilities.
 
 ## Known issues
 

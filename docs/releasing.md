@@ -9,7 +9,7 @@ alonabot check .
 alonabot pack . --target linux/amd64 --out bin
 ```
 
-Maintainers prepare `plugin.yaml` and `changelog/<version>/en-US.md` plus `zh-CN.md`. After review, publish the matching `v<version>` tag. The release workflow checks the version, builds five archives, verifies their LICENSE, and publishes notes under `## English` and `## 简体中文`. It removes the first version heading and uses `###` for category headings while retaining body text and fenced code.
+Maintainers prepare `plugin.yaml` and `changelog/<version>/en-US.md` plus `zh-CN.md`. Follow the [AlonaBot changelog guide](https://github.com/AlonaBot/AlonaBot/blob/main/changelog/README.md): describe outcomes, put linked PR numbers in parentheses, and mention only actions readers need to take. After review, publish the matching `v<version>` tag. The release workflow checks the version, builds five archives, verifies their LICENSE, and publishes notes under `## English` and `## 简体中文`. It removes the first version heading and uses `###` for category headings while retaining body text and fenced code.
 
 Changelogs describe user-visible features and fixes. Include upgrade notes only when that release requires manual migration or has an important consideration for users. Keep SDK commit references, build details and general replacement steps in the development or release guide.
 

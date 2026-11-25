@@ -3,8 +3,3 @@
 ### 变更
 
 - 支持 Core v0.3.0 的 Adapter 操作目录与 `alonabot adapter instance` 调试命令。
-- 中英文接入指南与贡献检查整理。
-
-### 升级要求
-
-- 安装或更新本版前先升级 Core v0.3.0。

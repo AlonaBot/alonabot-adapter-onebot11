@@ -9,7 +9,7 @@ alonabot check .
 alonabot pack . --target linux/amd64 --out bin
 ```
 
-维护者准备 `plugin.yaml` 和 `changelog/<版本>/en-US.md`、`zh-CN.md`。审查后发布匹配的 `v<版本>` tag。发布工作流核对版本、构建五平台归档、检查包内 LICENSE，并按 `## English`、`## 简体中文` 生成正文；跳过首个版本标题，分类统一为 `###`，保留正文和 fenced code。
+维护者准备 `plugin.yaml` 和 `changelog/<版本>/en-US.md`、`zh-CN.md`。按 [AlonaBot 更新日志约定](https://github.com/AlonaBot/AlonaBot/blob/main/changelog/README.zh-CN.md)写明实际变化；PR 链接放在条目末尾的括号内，有实际操作要求时才说明。 审查后发布匹配的 `v<版本>` tag。发布工作流核对版本、构建五平台归档、检查包内 LICENSE，并按 `## English`、`## 简体中文` 生成正文；跳过首个版本标题，分类统一为 `###`，保留正文和 fenced code。
 
 Changelog 记录用户可见的功能和修复；仅在本版需要手动迁移或有必要注意事项时添加升级说明。SDK 提交号、构建过程和通用替换步骤保留在开发或发布指南中。
 
