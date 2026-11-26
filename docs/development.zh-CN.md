@@ -40,6 +40,6 @@ Schema 生成入口为 `internal/schema/main.go`，通过 `go generate ./...` �
 - `plugin.yaml`: 组件身份与打包声明
 - `client/`、`segment/`、`event/`、`perm/`、`onebottest/`、`integration/`：公开 API 与模拟端验证
 
-[Core 源码开发](https://github.com/AlonaBot/AlonaBot/blob/main/docs/development.zh-CN.md) · [Core 插件指南](https://github.com/AlonaBot/AlonaBot/blob/main/docs/plugin-guide.zh-CN.md)
+[Core 源码开发](https://github.com/AlonaBot/AlonaBot/blob/main/docs/development.zh-CN.md) · [组件开发文档](https://alonabot.github.io/docs/tutorial/project)
 
 本地验证曾覆盖完整通知/请求的类型化 Handler、Core HTTP 入口的反向鉴权与账号复核、SDK 媒体 URL 与共享路径的租约回收，以及慢取件取消。模拟端检查与真实平台验收分别记录。见[SnowLuma 实测问题](usage.zh-CN.md#已知平台问题)。
