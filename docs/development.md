@@ -40,6 +40,6 @@ For documentation and GitHub metadata, check the changed links, YAML and scripts
 - `plugin.yaml`: component identity and packaging
 - `client/`, `segment/`, `event/`, `perm/`, `onebottest/`, `integration/`: public APIs and simulator-based verification
 
-[Core development](https://github.com/AlonaBot/AlonaBot/blob/main/docs/development.md) · [Core plugin guide](https://github.com/AlonaBot/AlonaBot/blob/main/docs/plugin-guide.md)
+[Core development](https://github.com/AlonaBot/AlonaBot/blob/main/docs/development.md) · [Component developer docs](https://alonabot.github.io/en/docs/tutorial/project)
 
 Local checks have covered typed handlers for complete notices/requests, reverse authentication and account rechecks through Core HTTP, SDK media URL/shared-path lease cleanup, and slow-fetch cancellation. Simulator checks and real-platform acceptance provide separate evidence. See the [recorded SnowLuma issue](usage.md#known-platform-issue).
