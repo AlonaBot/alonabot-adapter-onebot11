@@ -5,7 +5,7 @@ go 1.27.1
 tool google.golang.org/protobuf/cmd/protoc-gen-go
 
 require (
-	github.com/AlonaBot/AlonaBot v0.2.1-0.20261123105642-25a0f851099f
+	github.com/AlonaBot/AlonaBot v0.4.1-0.20261127175522-9b2dd66e80be
 	github.com/coder/websocket v1.8.15
 )
 
