@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/AlonaBot/AlonaBot/sdk"
@@ -29,11 +28,11 @@ func validateChain(chain msg.Chain, nested bool) error {
 		switch s := s.(type) {
 		case msg.TextSegment:
 			if s.Format == msg.FormatMarkdown || len(s.Entities) > 0 {
-				return errcode.Unsupported.New("rich text is unsupported")
+				return errcode.Unsupported.New(plainTextRule + ": rich text is unsupported")
 			}
 		case msg.ImageSegment:
 			if s.Alt != "" {
-				return errcode.Unsupported.New("image alt is unsupported")
+				return errcode.Unsupported.New(mediaRule + ": image alt is unsupported")
 			}
 			if err := validateInline(s.Source); err != nil {
 				return err
@@ -47,9 +46,8 @@ func validateChain(chain msg.Chain, nested bool) error {
 				return err
 			}
 		case msg.FileSegment:
-
 			if s.Caption != "" {
-				return errcode.Unsupported.New("file captions are unsupported")
+				return errcode.Unsupported.New(mediaRule + ": file captions are unsupported")
 			}
 			if err := validateInline(s.Source); err != nil {
 				return err
@@ -57,15 +55,15 @@ func validateChain(chain msg.Chain, nested bool) error {
 		case msg.MentionSegment:
 		case msg.ReferenceSegment:
 			if nested {
-				return errcode.Unsupported.New("nested reply is unsupported")
+				return errcode.Unsupported.New(replyRule + ": nested reply is unsupported")
 			}
 		case msg.ForwardSegment:
 			if s.PlatformForwardID != "" || len(s.Items) == 0 {
-				return errcode.Unsupported.New("send forward requires nonempty items")
+				return errcode.Unsupported.New(forwardRule + ": send forward requires nonempty items")
 			}
 			for _, item := range s.Items {
 				if (len(item.Chain) == 0) == (item.PlatformMessageID == "") {
-					return errcode.InvalidArgument.New("forward item requires content or message ID")
+					return errcode.InvalidArgument.New(forwardRule + ": forward item requires content or message ID")
 				}
 				if err := validateChain(item.Chain, true); err != nil {
 					return err
@@ -73,29 +71,13 @@ func validateChain(chain msg.Chain, nested bool) error {
 			}
 		case msg.ExtensionSegment:
 			if s.AdapterID != AdapterID || s.Version != 1 {
-				return errcode.Unsupported.New("unsupported extension")
+				return errcode.Unsupported.New(extensionRule + ": unsupported extension")
 			}
-			switch s.Name {
-			case "onebot11.forward_ref", "onebot11.face", "onebot11.at_all", "onebot11.json", "onebot11.xml", "onebot11.music", "onebot11.share", "onebot11.location", "onebot11.rps", "onebot11.dice", "onebot11.shake", "onebot11.contact", "onebot11.markdown":
-			default:
-				return errcode.Unsupported.New("unsupported onebot segment " + s.Name)
-			}
-			if s.Name != "onebot11.face" && s.Name != "onebot11.at_all" && s.Name != "onebot11.forward_ref" {
-				var raw struct {
-					Data string `json:"data"`
-				}
-				if err := json.Unmarshal([]byte(s.PayloadJSON), &raw); err != nil {
-					return err
-				}
-				if !json.Valid([]byte(raw.Data)) {
-					return errcode.InvalidArgument.New("invalid raw segment data JSON")
-				}
-			}
-			if !json.Valid([]byte(s.PayloadJSON)) {
-				return errcode.InvalidArgument.New("invalid extension JSON")
+			if _, err := extensionSegment(s); err != nil {
+				return err
 			}
 		default:
-			return errcode.Unsupported.New("unsupported onebot segment")
+			return errcode.Unsupported.New(unsupportedRule + ": unsupported onebot segment")
 		}
 	}
 	return nil
@@ -117,7 +99,7 @@ func (i *instance) plan(to string, chain msg.Chain) ([]sendPart, error) {
 				return nil, err
 			}
 			if sid != to || (instanceID != "" && instanceID != i.id) || reply != nil {
-				return nil, errcode.Unsupported.New("reply must reference this instance and target")
+				return nil, errcode.Unsupported.New(replyRule + ": reply must reference this instance and target")
 			}
 			reply = &wireSegment{"reply", map[string]any{"id": id}}
 			continue
@@ -130,6 +112,11 @@ func (i *instance) plan(to string, chain msg.Chain) ([]sendPart, error) {
 		case msg.FileSegment:
 			action = "upload_file"
 			separate = true
+		case msg.ExtensionSegment:
+			if s.(msg.ExtensionSegment).Name == "onebot11.forward_ref" {
+				action = "send_forward_msg"
+				separate = true
+			}
 		case msg.ForwardSegment:
 			action = "send_forward_msg"
 			separate = true
@@ -148,7 +135,7 @@ func (i *instance) plan(to string, chain msg.Chain) ([]sendPart, error) {
 	}
 	if reply != nil {
 		if len(parts) == 0 || parts[0].action != "send_msg" {
-			return nil, errcode.Unsupported.New("reply requires a message as first operation")
+			return nil, errcode.Unsupported.New(replyRule + ": reply requires a message as first operation")
 		}
 		parts[0].reply = reply
 		for n, s := range chain {
@@ -213,26 +200,11 @@ func (i *instance) segments(ctx context.Context, chain msg.Chain) (out []wireSeg
 			}
 			out = append(out, nodes...)
 		case msg.ExtensionSegment:
-			name := strings.TrimPrefix(s.Name, "onebot11.")
-			var data any
-			if name == "at_all" {
-				name = "at"
-				data = map[string]any{"qq": "all"}
-			} else if name == "face" {
-				data = json.RawMessage(s.PayloadJSON)
-			} else {
-				var raw struct {
-					Data string `json:"data"`
-				}
-				if e := json.Unmarshal([]byte(s.PayloadJSON), &raw); e != nil {
-					return out, cleanups, e
-				}
-				if !json.Valid([]byte(raw.Data)) {
-					return out, cleanups, errcode.InvalidArgument.New("missing extension data")
-				}
-				data = json.RawMessage(raw.Data)
+			segment, e := extensionSegment(s)
+			if e != nil {
+				return out, cleanups, e
 			}
-			out = append(out, wireSegment{name, data})
+			out = append(out, segment)
 		}
 	}
 	return

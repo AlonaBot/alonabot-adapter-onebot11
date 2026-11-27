@@ -41,7 +41,28 @@ HTTPS URL 直接交给协议端，同实例的入站媒体使用平台文件标�
 
 `SendResult.PartResults` 包含子资源上传与父消息发送，保留每个物理操作对应的片段索引、平台消息 ID、明确拒绝、结果未知及未尝试状态。中途失败时保留已经成功的回执，整体返回 `PARTIAL`；文件上传和异步响应可以成功且没有消息 ID。撤回按输入顺序调用 `delete_msg`。
 
-`segment` 包提供 `Face`、`JSON`、`XML`、`Music`、`Share`、`Location`、`Contact`、`Empty` 和 `Raw` 载荷，以及 `NewFace`、`AtAll`、`NewJSON`、`NewXML`、`NewMusic`、`NewShare`、`NewLocation`、`RPS`、`Dice`、`Shake`、`NewContact` 构造函数。`Raw.Data` 保存完整 data JSON 字符串，SDK 声明按字符串传输以保留全部字段与数字精度。`onebot11.face` 与 `onebot11.at_all` 支持收发；json、xml、music、share、location、rps、dice、shake、contact、markdown 通过对应声明的 extension 保留完整 `data`，也可交给协议端发送。未知段保存在只读的 `onebot11.segment` 扩展中。入站 forward 保留平台资源标识，通过 `c.ReadNodes` 展开；发送使用 SDK `ForwardItem`。`segment.ForwardRef(id)` 为 OneBot 专有资源引用，Adapter 在发送前自行查询，并按目标重建节点。
+`segment` 包提供 `Face`、`JSON`、`XML`、`Music`、`Share`、`Location`、`Contact`、`Empty` 和 `Raw` 载荷，以及 `NewFace`、`AtAll`、`NewJSON`、`NewXML`、`NewMusic`、`NewShare`、`NewLocation`、`RPS`、`Dice`、`Shake`、`NewContact` 构造函数。`Raw.Data` 保存完整 data JSON 字符串，SDK 声明按字符串传输以保留全部字段与数字精度。`onebot11.face` 与 `onebot11.at_all` 支持收发；json、xml、music、share、location、rps、dice、shake、contact、markdown 通过对应声明的 extension 保留完整 `data`，也可交给协议端发送。未知段保存在可收发的 `onebot11.segment` 扩展中。入站 forward 保留平台资源标识，通过 `c.ReadNodes` 展开；发送使用 SDK `ForwardItem`。`segment.ForwardRef(id)` 为 OneBot 专有资源引用，Adapter 在发送前自行查询，并按目标重建节点。
+
+### 出站描述与只读预检
+
+富消息开发候选提供按目标查询的格式、来源和组合声明。标准字段 Schema 由 SDK `message.StandardFormats` 提供；Adapter 补充平台条件，每个已有扩展都提供用途、同一 Schema 下的载荷例子和原有版本 1。
+
+交互调用 `c.DescribeMessage(c.Session(), sdk.Via(c.Instance()))` 读取描述，再用 `c.CheckMessage(c.Session(), chain, sdk.Via(c.Instance()))` 检查准备发送的链。定时调用使用 `sdk.DescribeMessage` / `sdk.CheckMessage` 和保存的目标、实例。状态为 `supported`、`unsupported`、`unknown`，错误包含对应规则名。
+
+- `text` 仅支持普通文字，带 `entities` 或 Markdown 格式时由 `onebot11.plain_text` 拒绝；标准 `markdown`、`buttons` 由 `onebot11.unsupported_formats` 拒绝。
+- 图片、视频、语音的 caption 转成跟随的文本段；文件 caption 和图片 alt 由 `onebot11.media` 拒绝。来源声明为 `https_url`、`media_ref`、`incoming`、`inline_base64`、`platform_file`；Core 负责媒体授权与发送时的来源准备，`platform_file` 仅供 Adapter 使用。
+- `onebot11.reply_first` 要求至多一个同目标、同实例的引用，并且首操作为普通消息（包括视频、语音）；文件或转发作为首操作时拒绝，节点内引用同样拒绝。
+- `onebot11.forward_nodes` 支持机器人自编节点与同目标、同实例已有消息句柄混排。Agent 自编节点使用机器人账号和昵称；SDK 显式提供的来源与时间仍按既有契约保留。节点允许递归转发和文件，混合正文/子节点时沿用子资源先上传的顺序。
+
+预检复用发送计划，只读检查格式与组合；媒体取件、平台请求、租约、按钮签发和历史均留在各自既有操作。`segment.ForwardRef` 的内容依赖平台查询，结构通过后返回 `unknown`，发送阶段查询并重建；同链其他已知违规仍返回具体错误。最终发送继续执行完整校验并返回平台实际结果。
+
+`onebot11.segment` 的 `Raw.Data` 接收完整 `{type,data}` 对象，其中 `type` 非空、`data` 为对象；Adapter 按原段类型发送，保留扩展字段和整数精度，平台支持情况由响应确定。例如：
+
+```go
+raw := message.Extension("onebot11", "onebot11.segment", 1, segment.Raw{
+    Data: `{"type":"poke","data":{"type":"1","id":"1"}}`,
+})
+```
 
 `event` 包提供 `sdk.EventType`：`Poke`、`LuckyKing`、`Honor`、`GroupAdmin`、`GroupBan`、`GroupUpload`、`FriendAdd`、`FriendRequest`、`GroupRequest`、`InputStatus`、`Notice`、`Request`，及其类型化载荷。事件名为 `onebot11.<snake_case>`，版本均为 1；末两项的 `Raw` 字段保留未知通知、请求的完整 JSON 原文字符串。未知上报没有群号或用户号时保留账号身份，`Session` 为空。群文件通知按声明提取文件字段，实现端附加字段仍保留在 `PlatformPayload`。标准消息、撤回和成员进退群使用 SDK 标准事件。
 
