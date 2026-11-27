@@ -43,3 +43,7 @@ Schema 生成入口为 `internal/schema/main.go`，通过 `go generate ./...` �
 [Core 源码开发](https://github.com/AlonaBot/AlonaBot/blob/main/docs/development.zh-CN.md) · [组件开发文档](https://alonabot.github.io/docs/tutorial/project)
 
 本地验证曾覆盖完整通知/请求的类型化 Handler、Core HTTP 入口的反向鉴权与账号复核、SDK 媒体 URL 与共享路径的租约回收，以及慢取件取消。模拟端检查与真实平台验收分别记录。见[SnowLuma 实测问题](usage.zh-CN.md#已知平台问题)。
+
+富消息跨仓联编使用忽略目录下的专用 `tmp/go.work`，只列本仓和对应 Core checkout，并为命令显式设置 `GOWORK`。验证 `go.mod` 固定的远端 SDK 时，设置 `GOWORK=off`。`alonabot test .` 通过离线真实 Session 验证扩展用途、示例与 Schema 注册；`TestRichMessageDelivery` 经公开 Adapter 与 `onebottest` 验证机器人节点、已有消息混排及原始扩展投递。开发候选采用 `0.4.0-dev.0`，双语 changelog 标题为 Unreleased。
+
+现行 CLI 的开发构建使用 `-modfile`，与 workspace 模式冲突。需要本地 Core 候选时，在 `tmp/` 中复制源码快照，仅给快照的 `go.mod` 添加本地 SDK `replace`，以 `GOWORK=off` 运行 `alonabot test` 或 `alonabot run`。本地绝对路径与快照均留在忽略目录。

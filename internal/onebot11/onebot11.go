@@ -47,10 +47,11 @@ func platformCapabilities() []msg.Capability {
 	}
 }
 
-// Descriptor 声明接收能力和平台事实权限。
+// Descriptor 声明收发格式、组合规则和平台事实权限。
 func (a *onebotAdapter) Descriptor() *adapter.Descriptor {
 	return &adapter.Descriptor{
 		AdapterID: AdapterID, Capabilities: platformCapabilities(),
+		Formats: messageFormats(), Combinations: combinationRules(),
 		HTTP:       []adapter.HTTPRoute{{Method: "GET", Path: "/ws/", Auth: adapter.AuthPlatformToken, Handler: http.HandlerFunc(a.reverseHTTP)}},
 		Extensions: extensionDeclarations(), Events: eventDeclarations(), Actions: actionDeclarations(),
 		Permissions: []adapter.PermissionDeclaration{

@@ -47,7 +47,28 @@ Merged forwards support files and recursive nodes; depth constraints follow the 
 
 The `segment` package provides `Face`, `JSON`, `XML`, `Music`, `Share`, `Location`, `Contact`, `Empty`, and `Raw` payloads, plus `NewFace`, `AtAll`, `NewJSON`, `NewXML`, `NewMusic`, `NewShare`, `NewLocation`, `RPS`, `Dice`, `Shake`, and `NewContact` constructors. `Raw.Data` holds the complete data JSON string; SDK declarations transmit it as a string to preserve all fields and numeric precision.
 
-`onebot11.face` and `onebot11.at_all` support inbound and outbound messages. json, xml, music, share, location, rps, dice, shake, contact, and markdown preserve full `data` in their declared extensions and can also be sent to the implementation. Unknown segments remain in the read-only `onebot11.segment` extension. Inbound forwards retain the platform resource ID and expand through `c.ReadNodes`; sends use SDK `ForwardItem`. `segment.ForwardRef(id)` is a OneBot resource reference that the adapter queries and rebuilds for the target before sending.
+`onebot11.face` and `onebot11.at_all` support inbound and outbound messages. json, xml, music, share, location, rps, dice, shake, contact, and markdown preserve full `data` in their declared extensions and can also be sent to the implementation. Unknown segments retain their complete envelope in the sendable `onebot11.segment` extension. Inbound forwards retain the platform resource ID and expand through `c.ReadNodes`; sends use SDK `ForwardItem`. `segment.ForwardRef(id)` is a OneBot resource reference that the adapter queries and rebuilds for the target before sending.
+
+### Outbound descriptions and readonly preflight
+
+The rich-message development candidate declares target-specific formats, sources, and composition rules. SDK `message.StandardFormats` owns standard field schemas; the adapter adds platform conditions. Every existing extension provides a purpose and a payload example validated against its schema, preserving version 1.
+
+In an interactive handler, call `c.DescribeMessage(c.Session(), sdk.Via(c.Instance()))`, then `c.CheckMessage(c.Session(), chain, sdk.Via(c.Instance()))`. Scheduled calls use `sdk.DescribeMessage` / `sdk.CheckMessage` with the saved target and instance. Status is `supported`, `unsupported`, or `unknown`; errors identify the relevant rule.
+
+- `text` accepts plain text. Entities or Markdown text format fail `onebot11.plain_text`; standard `markdown` and `buttons` fail `onebot11.unsupported_formats`.
+- Image/video/voice captions become following text. File captions and image alt fail `onebot11.media`. Sources are `https_url`, `media_ref`, `incoming`, `inline_base64`, and `platform_file`; Core authorizes media and prepares sources at send time. `platform_file` is adapter-only.
+- `onebot11.reply_first` allows one quote from this target and instance when the first operation is an ordinary message, including video or voice. A file or forward as first operation, and quotes inside nodes, are rejected.
+- `onebot11.forward_nodes` allows bot-authored nodes mixed with confirmed message handles from this target and instance. Agent-authored nodes use the bot account and nickname; explicit SDK source/time metadata keeps its existing meaning. Nodes may contain nested forwards and files; mixed body/child nodes upload child resources before sending the parent.
+
+Preflight reuses the sending plan and checks formats and composition without media retrieval, platform requests, leases, button issuance, or history changes. `segment.ForwardRef` requires a platform query to inspect its contents, so structurally valid resources return `unknown` and are queried/rebuilt during send. Other known violations in the same chain still return specific errors. Final sending retains full validation and actual platform results.
+
+For `onebot11.segment`, `Raw.Data` contains one complete `{type,data}` envelope with a nonempty type and object data. The adapter sends that segment type, preserving extra fields and integer precision. Backend support is determined by its response:
+
+```go
+raw := message.Extension("onebot11", "onebot11.segment", 1, segment.Raw{
+    Data: `{"type":"poke","data":{"type":"1","id":"1"}}`,
+})
+```
 
 ### Events
 
