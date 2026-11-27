@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -460,6 +461,35 @@ func (i *instance) forwardNodes(ctx context.Context, items []msg.ForwardItem) (n
 	return
 }
 
+// decodeRawNode 保留未知字段和数字原文，只将数组 content 转成递归发送所需的片段。
+func decodeRawNode(raw json.RawMessage) (map[string]any, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, fmt.Errorf("decode raw node data: %w", err)
+	}
+	data := make(map[string]any, len(fields))
+	for name, value := range fields {
+		data[name] = value
+	}
+	content := fields["content"]
+	if len(content) == 0 || content[0] != '[' {
+		return data, nil
+	}
+	var children []struct {
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(content, &children); err != nil {
+		return nil, fmt.Errorf("decode raw node content: %w", err)
+	}
+	segments := make([]wireSegment, len(children))
+	for n, child := range children {
+		segments[n] = wireSegment{child.Type, child.Data}
+	}
+	data["content"] = segments
+	return data, nil
+}
+
 // materializeMixed 原生纯 node 数组直接递归；混合内容仅上传子资源，最后发送父消息。
 func (i *instance) materializeMixed(ctx context.Context, to string, segments []wireSegment, onUpload func(error, bool)) ([]wireSegment, error) {
 	hasNode, hasOther := false, false
@@ -469,15 +499,22 @@ func (i *instance) materializeMixed(ctx context.Context, to string, segments []w
 			continue
 		}
 		hasNode = true
-		data := segment.Data.(map[string]any)
+		data, constructed := segment.Data.(map[string]any)
+		if !constructed {
+			var err error
+			data, err = decodeRawNode(segment.Data.(json.RawMessage))
+			if err != nil {
+				return segments, err
+			}
+		}
 		if content, ok := data["content"].([]wireSegment); ok {
 			next, err := i.materializeMixed(ctx, to, content, onUpload)
 			if err != nil {
 				return segments, err
 			}
 			data["content"] = next
-			segments[index].Data = data
 		}
+		segments[index].Data = data
 	}
 	if !hasNode || !hasOther {
 		return segments, nil
